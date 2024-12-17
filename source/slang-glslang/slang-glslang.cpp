@@ -1,12 +1,12 @@
 // slang-glslang.cpp
 #include "slang-glslang.h"
 
-#include "SPIRV/GlslangToSpv.h"
-#include "glslang/MachineIndependent/localintermediate.h"
-#include "glslang/Public/ShaderLang.h"
 #include "slang.h"
 #include "spirv-tools/libspirv.h"
 #include "spirv-tools/optimizer.hpp"
+
+#include <glslang/Public/ShaderLang.h>
+#include <glslang/SPIRV/GlslangToSpv.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -169,7 +169,8 @@ extern "C"
 #else
     __attribute__((__visibility__("default")))
 #endif
-        bool glslang_validateSPIRV(const uint32_t* contents, int contentsSize)
+    bool
+    glslang_validateSPIRV(const uint32_t* contents, int contentsSize)
 {
     spv_target_env target_env = SPV_ENV_VULKAN_1_3;
 
@@ -743,7 +744,6 @@ static int glslang_compileGLSLToSPIRV(glslang_CompileRequest_1_2 request)
             continue;
         if (debugLevel == SLANG_DEBUG_INFO_LEVEL_MAXIMAL)
         {
-            stageIntermediate->addSourceText(sourceText, sourceTextLength);
         }
 
         std::vector<unsigned int> spirv;
@@ -884,7 +884,8 @@ extern "C"
 #else
     __attribute__((__visibility__("default")))
 #endif
-        int glslang_compile_1_2(glslang_CompileRequest_1_2* inRequest)
+    int
+    glslang_compile_1_2(glslang_CompileRequest_1_2* inRequest)
 {
     static ProcessInitializer g_processInitializer;
     if (!g_processInitializer.init())
@@ -923,7 +924,8 @@ extern "C"
 #else
     __attribute__((__visibility__("default")))
 #endif
-        int glslang_compile_1_1(glslang_CompileRequest_1_1* inRequest)
+    int
+    glslang_compile_1_1(glslang_CompileRequest_1_1* inRequest)
 {
     glslang_CompileRequest_1_2 request;
     memset(&request, 0, sizeof(request));
@@ -938,7 +940,8 @@ extern "C"
 #else
     __attribute__((__visibility__("default")))
 #endif
-        int glslang_compile(glslang_CompileRequest_1_0* inRequest)
+    int
+    glslang_compile(glslang_CompileRequest_1_0* inRequest)
 {
     glslang_CompileRequest_1_1 request;
     memset(&request, 0, sizeof(request));

@@ -9,10 +9,14 @@ add_cxxflags(
 )
 
 --  ── Packages ────────────────────────────────────────────────────────
+includes("packages.lua")
+
 add_requires("unordered_dense v4.5.0")
 add_requires("miniz 2.2.0")
 add_requires("lz4 v1.10.0")
-add_requires("spirv-headers 1.3.290+0")
+add_requires("slang-glslang sync")
+add_requires("slang-spirv-headers sync")
+add_requires("slang-spirv-tools sync")
 
 --  ── Functions ───────────────────────────────────────────────────────
 local add_slang_target = function (dir, options)
@@ -111,7 +115,7 @@ add_slang_target("compiler-core", {
         { "core", { public = false } }
     },
     packages = {
-        { "spirv-headers", { public = true } }
+        { "slang-spirv-headers", { public = true } }
     }
 })
 
@@ -204,4 +208,19 @@ add_slang_target("slang", {
         { "core", "compiler-core", { public = false } }
     },
     header_files = { "$(buildir)/slang-tag-version.h" }
+})
+
+--  ── slang-glslang ───────────────────────────────────────────────────
+add_slang_target("slang-glslang", {
+    kind = "shared",
+    includes = {
+        "$(projectdir)/source/slang-glslang",
+        "$(projectdir)/include"
+    },
+    files = {
+        "slang-glslang/slang-glslang.cpp",
+    },
+    packages = {
+        "slang-glslang", "slang-spirv-headers", "slang-spirv-tools"
+    },
 })
