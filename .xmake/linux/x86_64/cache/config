@@ -1,0 +1,14 @@
+{
+    options = {
+        runtimes = "c++_shared",
+        mode = "debug",
+        clean = true,
+        toolchain = "clang"
+    },
+    recheck = false,
+    mtimes = {
+        ["tools/xmake.lua"] = 1734397922,
+        ["xmake.lua"] = 1734447646,
+        ["source/xmake.lua"] = 1734450972
+    }
+}

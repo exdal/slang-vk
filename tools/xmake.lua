@@ -1,0 +1,37 @@
+local add_generator = function(dir, options)
+    options = options or {}
+    target(dir)
+        set_default(false)
+        set_kind(options.kind or "binary")
+        set_languages("cxx17")
+        set_warnings("none")
+
+        set_policy("build.fence", true)
+
+        set_group("generators")
+        set_targetdir("$(projectdir)/generators")
+        set_installdir("$(projectdir)/generators")
+
+        add_files(dir .. "/*.cpp")
+        if options.includes then
+            add_includedirs(options.includes, { public = true })
+        end
+
+        add_deps("core")
+
+        if options.links then
+            for _, dep in ipairs(options.links) do
+                add_deps(dep)
+            end
+        end
+    target_end()
+end
+
+add_generator("slang-embed")
+add_generator("slang-generate")
+add_generator("slang-lookup-generator", { links = { "compiler-core" } })
+add_generator("slang-capability-generator", { links = { "compiler-core" } })
+add_generator("slang-spirv-embed-generator", { links = { "compiler-core" } })
+
+add_generator("slang-cpp-parser", { kind = "static", includes = ".", links = { "compiler-core" } })
+add_generator("slang-cpp-extractor", { links = { "compiler-core", "slang-cpp-parser" } })
