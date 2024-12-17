@@ -707,6 +707,9 @@ static int glslang_compileGLSLToSPIRV(glslang_CompileRequest_1_2 request)
         spvOptions.emitNonSemanticShaderDebugSource = true;
         spvOptions.disableOptimizer = true;
         request.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_NONE;
+
+        // NOTE: exdal: Not original implementation, fuck you glslang
+        shader->addSourceText(sourceText, sourceTextLength);
     }
 
     // Link program
@@ -742,9 +745,6 @@ static int glslang_compileGLSLToSPIRV(glslang_CompileRequest_1_2 request)
         auto stageIntermediate = program->getIntermediate((EShLanguage)stage);
         if (!stageIntermediate)
             continue;
-        if (debugLevel == SLANG_DEBUG_INFO_LEVEL_MAXIMAL)
-        {
-        }
 
         std::vector<unsigned int> spirv;
         spv::SpvBuildLogger logger;
