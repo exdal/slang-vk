@@ -1,30 +1,29 @@
--- Disable annoying warnings project wide --
-add_cxxflags(
-    "-Wno-assume",
-    "-Wno-switch",
-    "-Wno-constant-logical-operand",
-    "-Wno-invalid-offsetof",
-    "-Wno-dangling-else",
-    { tools = { "clang", "gcc" } }
-)
-
 --  ── Packages ────────────────────────────────────────────────────────
 includes("packages.lua")
 
 add_requires("unordered_dense v4.5.0")
 add_requires("miniz 2.2.0")
 add_requires("lz4 v1.10.0")
-add_requires("slang-glslang sync")
 add_requires("slang-spirv-headers sync")
-add_requires("slang-spirv-tools sync")
 
 --  ── Functions ───────────────────────────────────────────────────────
 local add_slang_target = function (dir, options)
     options = options or {}
+    local kind = options.kind or "static"
     target(dir)
-        set_kind(options.kind or "static")
+        set_kind(kind)
+        set_default(options.default or false)
         set_languages("cxx17")
         set_warnings("extra")
+        add_cxxflags(
+            "-Wno-assume",
+            "-Wno-switch",
+            "-Wno-constant-logical-operand",
+            "-Wno-invalid-offsetof",
+            "-Wno-dangling-else",
+            "-fPIC",
+            { tools = { "clang", "gcc" } }
+        )
 
         for _, includes in ipairs(options.includes) do
             local paths = {}
@@ -37,6 +36,15 @@ local add_slang_target = function (dir, options)
                 end
             end
             add_includedirs(paths, include_opts)
+        end
+
+        if options.export_macro_prefix then
+            if kind == "shared" then
+                add_defines(options.export_macro_prefix .. "_DYNAMIC", { public = true })
+                add_defines(options.export_macro_prefix .. "_DYNAMIC_EXPORT", { public = false })
+            elseif kind == "static" then
+                add_defines(options.export_macro_prefix .. "_STATIC", { public = true })
+            end
         end
 
         for _, files in ipairs(options.files) do
@@ -119,6 +127,22 @@ add_slang_target("compiler-core", {
     }
 })
 
+--  ── slang-rt ────────────────────────────────────────────────────────
+add_slang_target("slang-rt", {
+    kind = "shared",
+    includes = {
+        { "$(projectdir)/include", { public = true } },
+    },
+    files = {
+        "core/*.cpp",
+    },
+    packages = {
+        { "miniz", "lz4", { public = false } },
+        { "unordered_dense", { public = true } },
+    },
+    export_macro_prefix = "SLANG_RT",
+})
+
 --  ── slang ───────────────────────────────────────────────────────────
 target("slang-capability-defs")
     set_kind("object")
@@ -194,6 +218,7 @@ target_end()
 -- TODO: Source embedding
 
 add_slang_target("slang", {
+    default = true,
     kind = "shared",
     includes = {
         { "$(projectdir)", "$(projectdir)/include", { public = true } },
@@ -207,20 +232,31 @@ add_slang_target("slang", {
         { "slang-capability-lookup", "slang-reflect-headers", "copy_slang_headers" },
         { "core", "compiler-core", { public = false } }
     },
-    header_files = { "$(buildir)/slang-tag-version.h" }
+    header_files = { "$(buildir)/slang-tag-version.h" },
+    export_macro_prefix = "SLANG",
+})
+
+--  ── slang-core-module ───────────────────────────────────────────────
+add_slang_target("slang-embedded-core-module", {
+    kind = "object",
 })
 
 --  ── slang-glslang ───────────────────────────────────────────────────
-add_slang_target("slang-glslang", {
-    kind = "shared",
-    includes = {
-        "$(projectdir)/source/slang-glslang",
-        "$(projectdir)/include"
-    },
-    files = {
-        "slang-glslang/slang-glslang.cpp",
-    },
-    packages = {
-        "slang-glslang", "slang-spirv-headers", "slang-spirv-tools"
-    },
-})
+if has_config("enable_glslang") then
+    add_requires("slang-glslang sync")
+    add_requires("slang-spirv-tools sync")
+
+    add_slang_target("slang-glslang", {
+        kind = "shared",
+        includes = {
+            "$(projectdir)/source/slang-glslang",
+            "$(projectdir)/include"
+        },
+        files = {
+            "slang-glslang/slang-glslang.cpp",
+        },
+        packages = {
+            "slang-glslang", "slang-spirv-headers", "slang-spirv-tools"
+        },
+    })
+end

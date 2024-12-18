@@ -35,7 +35,7 @@ package("slang-spirv-tools")
 
     add_deps("slang-spirv-headers sync")
     add_deps("cmake >=3.17.2")
-    add_deps("python 3.x", { kind = "binary" })
+    --add_deps("python 3.x", { kind = "binary" })
 
     on_install(function (package)
         package:addenv("PATH", "bin")
@@ -86,7 +86,7 @@ package("slang-glslang")
         add_configs("shared", {description = "Build shared library.", default = false, type = "boolean", readonly = true})
     end
 
-    add_deps("cmake", "python 3.x", {kind = "binary"})
+    add_deps("cmake")
     add_deps("slang-spirv-tools sync")
     if is_plat("linux") then
         add_syslinks("pthread")
