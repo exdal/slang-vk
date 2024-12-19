@@ -7,36 +7,36 @@ add_requires("lz4 v1.10.0")
 add_requires("slang-spirv-headers sync")
 
 --  ── Functions ───────────────────────────────────────────────────────
-local add_slang_target = function (dir, options)
+local add_slang_target = function (name, options)
+    local from_table = function (tbl, func)
+        tbl = tbl or {}
+        for _, i in ipairs(tbl) do
+            local args = {}
+            for _, v in ipairs(i) do
+                if type(v) == "string" then
+                    table.insert(args, v)
+                elseif type(v) == "table" then
+                    table.insert(args, v)
+                end
+            end
+            func(table.unpack(args))
+        end
+    end
+
     options = options or {}
     local kind = options.kind or "static"
-    target(dir)
+    target(name)
         set_kind(kind)
         set_default(options.default or false)
         set_languages("cxx17")
         set_warnings("extra")
-        add_cxxflags(
-            "-Wno-assume",
-            "-Wno-switch",
-            "-Wno-constant-logical-operand",
-            "-Wno-invalid-offsetof",
-            "-Wno-dangling-else",
-            "-fPIC",
-            { tools = { "clang", "gcc" } }
-        )
 
-        for _, includes in ipairs(options.includes) do
-            local paths = {}
-            local include_opts = {}
-            for _, v in ipairs(includes) do
-                if type(v) == "string" then
-                    table.insert(paths, v)
-                elseif type(v) == "table" then
-                    include_opts = v
-                end
-            end
-            add_includedirs(paths, include_opts)
-        end
+        from_table(options.includes, add_includedirs)
+        from_table(options.files, add_files)
+        from_table(options.deps, add_deps)
+        from_table(options.packages, add_packages)
+        from_table(options.defines, add_defines)
+        from_table(options.config_files, add_configfiles)
 
         if options.export_macro_prefix then
             if kind == "shared" then
@@ -45,10 +45,6 @@ local add_slang_target = function (dir, options)
             elseif kind == "static" then
                 add_defines(options.export_macro_prefix .. "_STATIC", { public = true })
             end
-        end
-
-        for _, files in ipairs(options.files) do
-            add_files(files)
         end
 
         if is_os("windows") and options.windows_files then
@@ -63,35 +59,16 @@ local add_slang_target = function (dir, options)
             end
         end
 
-        if options.deps then
-            for _, dep in ipairs(options.deps) do
-                local dep_names = {}
-                local dep_opts = {}
-                for _, v in ipairs(dep) do
-                    if type(v) == "string" then
-                        table.insert(dep_names, v)
-                    elseif type(v) == "table" then
-                        dep_opts = v
-                    end
-                end
-                add_deps(dep_names, dep_opts)
-            end
+        if options.before_build then
+            before_build(options.before_build)
         end
 
-        if options.packages then
-            for _, packages in ipairs(options.packages) do
-                local package_names = {}
-                local package_opts = {}
-                for _, v in ipairs(packages) do
-                    if type(v) == "string" then
-                        table.insert(package_names, v)
-                    elseif type(v) == "table" then
-                        package_opts = v
-                    end
-                end
-                add_packages(package_names, package_opts)
-            end
+        if options.on_config then
+            on_config(options.on_config)
         end
+
+        set_enabled(not options.enabled or false)
+        set_policy("build.fence", options.fence or false)
     target_end()
 end
 
@@ -101,7 +78,7 @@ add_slang_target("core", {
         { "$(projectdir)/include", "$(projectdir)/source", { public = true } }
     },
     files = {
-        "core/*.cpp"
+        { "core/*.cpp" }
     },
     windows_files = "core/windows/*.cpp",
     linux_files = "core/unix/*.cpp",
@@ -117,7 +94,7 @@ add_slang_target("compiler-core", {
         { "compiler-core", { public = true } }
     },
     files = {
-        "compiler-core/*.cpp"
+        { "compiler-core/*.cpp" }
     },
     deps = {
         { "core", { public = false } }
@@ -134,7 +111,7 @@ add_slang_target("slang-rt", {
         { "$(projectdir)/include", { public = true } },
     },
     files = {
-        "core/*.cpp",
+        { "core/*.cpp" },
     },
     packages = {
         { "miniz", "lz4", { public = false } },
@@ -143,38 +120,160 @@ add_slang_target("slang-rt", {
     export_macro_prefix = "SLANG_RT",
 })
 
+--  ── slang-core-module ───────────────────────────────────────────────
+local core_module_common_args = {
+    kind = get_config("lib_type"),
+    files = {
+        { "slang-core-module/slang-embedded-core-module.cpp" }
+    },
+    deps = {
+        { "core", { public = false } }
+    },
+    export_macro_prefix = "SLANG",
+}
+
+local core_module_source_common_args = {
+    kind = get_config("lib_type"),
+    files = {
+        { "slang-core-module/slang-embedded-core-module-source.cpp" }
+    },
+    deps = { {
+        "core",
+        "slang-generate",
+        "slang-capability-defs",
+        "slang-reflect-headers",
+        { public = false },
+    } },
+    packages = {
+        { "slang-spirv-headers" }
+    },
+    includes = {
+        { "$(buildir)/core-module-meta", { public = false } }
+    },
+    before_build = function ()
+        import("core.project.config")
+        local output_dir = path.join(config.buildir(), "core-module-meta")
+        local args = {}
+        for _, v in ipairs(os.files("$(scriptdir)/slang/*.meta.slang")) do
+            table.insert(args, v)
+        end
+
+        table.insert(args, "--target-directory")
+        table.insert(args, output_dir)
+
+        os.mkdir(output_dir)
+        os.vrunv("$(projectdir)/generators/slang-generate", args)
+    end
+}
+
+add_slang_target("slang-no-embedded-core-module", core_module_common_args)
+add_slang_target("slang-no-embedded-core-module-source", core_module_source_common_args)
+
+add_slang_target("slang-embedded-core-module", {
+    core_module_common_args,
+    defines = {
+        { "SLANG_EMBED_CORE_MODULE", { public = false } }
+    },
+    includes = {
+        { "$(buildir)", { public = false } }
+    },
+    enabled = get_config("embed_core_module"),
+    before_build = function ()
+        import("core.project.config")
+        local output_dir = config.buildir()
+        local generated_header = path.join(output_dir, "slang-core-module-generated.h")
+
+        os.vrunv("$(projectdir)/generators/slang-bootstrap", {
+            "-archive-type", "riff-lz4", "-save-core-module-bin-source", generated_header
+        })
+    end
+})
+add_slang_target("slang-embedded-core-module-source", {
+    core_module_source_common_args,
+    defines = {
+        { "SLANG_EMBED_CORE_MODULE_SOURCE", { public = false } }
+    },
+})
 --  ── slang ───────────────────────────────────────────────────────────
-target("slang-capability-defs")
-    set_kind("object")
-    add_deps("slang-capability-generator")
-    add_includedirs("$(buildir)/capabilities", "$(projectdir)/source/slang", { public = true })
-    before_build(function ()
+add_slang_target("slang-capability-defs", {
+    kind = "object",
+    fence = true,
+    deps = {
+        { "slang-capability-generator" }
+    },
+    includes = {
+        { "$(buildir)/capabilities", "$(projectdir)/source/slang", { public = true } }
+    },
+    before_build = function ()
         import("core.project.config")
         local output_dir = path.join(config.buildir(), "capabilities")
         os.mkdir(output_dir)
 
         for _, file_path in ipairs(os.files("$(scriptdir)/slang/*.capdef")) do
             print("Generating capability defs for " .. file_path)
-            os.vrunv("$(projectdir)/generators/slang-capability-generator",
-                    { file_path,
-                     "--target-directory", output_dir,
-                     "--doc", path.join(os.projectdir(), "docs/dummy.md") })
+            os.vrunv("$(projectdir)/generators/slang-capability-generator", {
+                file_path, "--target-directory", output_dir, "--doc",
+                path.join(os.projectdir(), "docs/dummy.md")
+            })
       end
-    end)
-target_end()
+    end,
+})
 
-target("slang-capability-lookup")
-    set_kind("object")
-    add_deps("core", "slang-capability-defs")
-    add_files("$(buildir)/capabilities/slang-lookup-capability-defs.cpp")
-rule_end()
+add_slang_target("slang-capability-lookup", {
+    kind = "object",
+    deps = {
+        { "core", "slang-capability-defs" }
+    },
+    files = {
+        { "$(buildir)/capabilities/slang-lookup-capability-defs.cpp", { always_added = true } }
+    },
+})
 
-target("slang-reflect-headers")
-    set_kind("object")
-    add_deps("slang-cpp-extractor")
-    add_includedirs("$(buildir)/ast-reflect", { public = true })
+add_slang_target("slang-lookup-tables", {
+    kidn = "object",
+    deps = {
+        { "slang-lookup-generator", "slang-spirv-embed-generator" }
+    },
+    files = { {
+        "$(buildir)/slang-lookup-tables/slang-lookup-GLSLstd450.cpp",
+        "$(buildir)/slang-lookup-tables/slang-spirv-core-grammar-embed.cpp",
+        { always_added = true }
+    } },
+    packages = {
+        { "slang-spirv-headers" }
+    },
+    before_build = function (target)
+        import("core.project.config")
+        local output_dir = path.join(config.buildir(), "slang-lookup-tables")
+        local spirv_path = target:pkg("slang-spirv-headers"):installdir():gsub("\\", "/")
+        local grammar_dir = path.join(spirv_path, "include", "spirv", "unified1")
 
-    before_build(function ()
+        local glsl_grammar_file = path.join(grammar_dir, "extinst.glsl.std.450.grammar.json")
+        local glsl_generated_source = path.join(output_dir, "slang-lookup-GLSLstd450.cpp")
+        local spirv_grammar_file = path.join(grammar_dir, "spirv.core.grammar.json")
+        local spirv_generated_source = path.join(output_dir, "slang-spirv-core-grammar-embed.cpp")
+        os.mkdir(output_dir)
+
+        os.vrunv("$(projectdir)/generators/slang-lookup-generator", {
+            glsl_grammar_file, glsl_generated_source, "GLSLstd450", "GLSLstd450",
+            "spirv/unified1/GLSL.std.450.h",
+        })
+
+        os.vrunv("$(projectdir)/generators/slang-spirv-embed-generator", {
+            spirv_grammar_file, spirv_generated_source
+        })
+    end
+})
+
+add_slang_target("slang-reflect-headers", {
+    kind = "phony",
+    includes = {
+        { "$(buildir)/ast-reflect", { public = true } }
+    },
+    deps = {
+        { "slang-cpp-extractor" }
+    },
+    before_build = function ()
         import("core.project.config")
         local working_dir = path.join(os.scriptdir(), "slang")
         local output_dir = path.absolute(path.join(config.buildir(), "ast-reflect"))
@@ -204,18 +303,8 @@ target("slang-reflect-headers")
         table.insert(args, "-mark-suffix")
         table.insert(args, "_CLASS")
         os.vrunv("$(projectdir)/generators/slang-cpp-extractor", args)
-    end)
-rule_end()
-
-target("copy_slang_headers")
-    set_kind("object")
-    add_configfiles("$(projectdir)/slang-tag-version.h.in", { filename = "slang-tag-version.h" })
-
-    before_build(function ()
-    end)
-target_end()
-
--- TODO: Source embedding
+    end
+})
 
 add_slang_target("slang", {
     default = true,
@@ -224,21 +313,40 @@ add_slang_target("slang", {
         { "$(projectdir)", "$(projectdir)/include", { public = true } },
         { "$(buildir)", { public = false } }
     },
-    files = {
-        "slang/*.cpp"
+    files = { {
+        "slang/*.cpp",
+        "slang-record-replay/record/*.cpp",
+        "slang-record-replay/util/*.cpp",
+    } },
+    deps = { {
+        "core",
+        "prelude",
+        "compiler-core",
+        "slang-capability-defs",
+        "slang-capability-lookup",
+        "slang-reflect-headers",
+        "slang-lookup-tables",
+        not get_config("embed_core_module") and "slang-embedded-core-module" or "slang-no-embedded-core-module",
+        not get_config("embed_core_module_source") and "slang-embedded-core-module-source" or "slang-no-embedded-core-module-source",
+        { public = false }
+    } },
+    packages = {
+        { "slang-spirv-headers" }
     },
-    deps = {
-        -- generators
-        { "slang-capability-lookup", "slang-reflect-headers", "copy_slang_headers" },
-        { "core", "compiler-core", { public = false } }
+    defines = {
+        { "SLANG_USE_SYSTEM_SPIRV_HEADER" }
     },
-    header_files = { "$(buildir)/slang-tag-version.h" },
     export_macro_prefix = "SLANG",
+    config_files = {
+        { "$(projectdir)/slang-tag-version.h.in", { filename = "slang-tag-version.h" } },
+    },
 })
 
---  ── slang-core-module ───────────────────────────────────────────────
-add_slang_target("slang-embedded-core-module", {
-    kind = "object",
+add_slang_target("slang-without-embedded-core-module", {
+    kind = "phony",
+    deps = {
+        { "slang", { public = true } }
+    },
 })
 
 --  ── slang-glslang ───────────────────────────────────────────────────
@@ -248,15 +356,15 @@ if has_config("enable_glslang") then
 
     add_slang_target("slang-glslang", {
         kind = "shared",
-        includes = {
+        includes = { {
             "$(projectdir)/source/slang-glslang",
             "$(projectdir)/include"
-        },
-        files = {
+        } },
+        files = { {
             "slang-glslang/slang-glslang.cpp",
-        },
-        packages = {
+        } },
+        packages = { {
             "slang-glslang", "slang-spirv-headers", "slang-spirv-tools"
-        },
+        } },
     })
 end

@@ -1,5 +1,16 @@
 add_rules("mode.debug", "mode.release", "mode.releasedbg")
 
+-- Global Compiler Options --
+add_cxxflags(
+    "-Wno-assume",
+    "-Wno-switch",
+    "-Wno-constant-logical-operand",
+    "-Wno-invalid-offsetof",
+    "-Wno-dangling-else",
+    "-fPIC",
+    { tools = { "clang", "gcc" } }
+)
+
 local SLANG_VERSION = "2024.17"
 set_project("slang")
 set_version("v" .. SLANG_VERSION)
@@ -10,24 +21,27 @@ option("embed_core_module_source")
     set_default(true)
     set_description("Embed core module source in the binary")
     add_defines("SLANG_EMBED_CORE_MODULE_SOURCE")
+option_end()
 
 option("embed_core_module")
     set_default(true)
     set_description("Build slang with an embedded version of the core module")
     add_defines("SLANG_EMBED_CORE_MODULE")
+option_end()
 
 option("enable_glslang")
     set_default(true)
     set_description("Enable glslang dependency and slang-glslang wrapper target")
+option_end()
 
 option("enable_replayer")
     set_default(true)
     set_description("Enable slang-replay tool")
+option_end()
 
-option("build_shared")
-    set_default(true)
-
--- Global Compiler Options --
+option("lib_type")
+    set_default("static")
+option_end()
 
 includes("tools")
 includes("source")

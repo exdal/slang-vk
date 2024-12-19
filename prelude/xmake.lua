@@ -3,8 +3,15 @@ target("prelude")
     add_packages("unordered_dense")
     add_deps("slang-embed")
 
-    add_files("$(scriptdir)/*.cpp")
-    add_includedirs("$(scriptdir)", "$(projectdir)/include", { public = true })
+    add_files(
+        "slang-cpp-host-prelude.h.cpp",
+        "slang-cpp-prelude.h.cpp",
+        "slang-cuda-prelude.h.cpp",
+        "slang-hlsl-prelude.h.cpp",
+        "slang-torch-prelude.h.cpp",
+        { always_added = true }
+    )
+    add_includedirs("./", "$(projectdir)/include", { public = true })
 
     before_build(function ()
         for _, file_path in ipairs(os.files("$(scriptdir)/*-prelude.h")) do
@@ -13,6 +20,6 @@ target("prelude")
             os.vrunv("$(projectdir)/generators/slang-embed", {
                 file_path, path.join(os.scriptdir(), file_name .. ".cpp")
             })
-      end
+        end
     end)
 target_end()

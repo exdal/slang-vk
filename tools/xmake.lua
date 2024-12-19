@@ -1,6 +1,6 @@
 local add_generator = function(dir, options)
     options = options or {}
-    target(dir)
+    target(options.name or dir)
         set_default(false)
         set_kind(options.kind or "binary")
         set_languages("cxx17")
@@ -35,3 +35,8 @@ add_generator("slang-spirv-embed-generator", { links = { "compiler-core" } })
 
 add_generator("slang-cpp-parser", { kind = "static", includes = ".", links = { "compiler-core" } })
 add_generator("slang-cpp-extractor", { links = { "compiler-core", "slang-cpp-parser" } })
+
+add_generator("$(projectdir)/source/slangc", {
+    name = "slang-bootstrap",
+    links = { "slang-without-embedded-core-module", "prelude", "slang-capability-lookup", "slang-lookup-tables" }
+})
