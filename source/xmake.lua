@@ -365,7 +365,7 @@ add_slang_target("slang-without-embedded-core-module", {
 })
 
 --  ── slang-glslang ───────────────────────────────────────────────────
-if has_config("enable_glslang") then
+if get_config("enable_glslang") == true then
     add_requires("slang-glslang sync")
     add_requires("slang-spirv-tools sync")
 
