@@ -42,7 +42,7 @@ option("enable_replayer")
 option_end()
 
 option("lib_type")
-    set_default("static")
+    set_default("shared")
 option_end()
 
 includes("tools")
