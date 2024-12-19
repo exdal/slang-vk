@@ -7,9 +7,11 @@ add_cxxflags(
     "-Wno-constant-logical-operand",
     "-Wno-invalid-offsetof",
     "-Wno-dangling-else",
-    "-fPIC",
-    { tools = { "clang", "gcc" } }
+    { tools = { "clang", "gcc", "clang_cl" } }
 )
+
+add_cxxflags("-fPIC", { tools = { "clang", "gcc" } })
+set_encodings("utf-8")
 
 local SLANG_VERSION = "2024.17"
 set_project("slang")

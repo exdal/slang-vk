@@ -5,6 +5,10 @@
 #include "../core/slang-io.h"
 #include "../core/slang-type-text-util.h"
 
+#ifdef SLANG_VC
+#include "windows/slang-win-visual-studio-util.h"
+#endif
+
 //
 #include "slang-glslang-compiler.h"
 

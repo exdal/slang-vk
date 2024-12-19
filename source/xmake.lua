@@ -31,6 +31,38 @@ local add_slang_target = function (name, options)
         set_languages("cxx17")
         set_warnings("extra")
 
+        on_config(function (target)
+            if is_mode("debug") then
+                target:add("defines", "_DEBUG")
+            end
+
+            if is_plat("windows") then
+                target:add("syslinks", "advapi32", "Shell32")
+            elseif is_plat("linux") then
+                target:add("syslinks", "dl", "pthread")
+            end
+
+            target:add("defines", "SLANG_COMPILER")
+            if target:has_tool("cc", "cl") or target:has_tool("cc", "clang_cl") then
+                target:add("defines", "_UNICODE", { force = true, public = true  })
+                target:add("defines", "UNICODE", { force = true, public = true  })
+                target:add("defines", "WIN32_LEAN_AND_MEAN", { force = true, public = true  })
+                target:add("defines", "VC_EXTRALEAN", { force = true, public = true  })
+                target:add("defines", "NOMINMAX", { force = true, public = true  })
+                target:add("defines", "_WIN32", { force = true, public = true  })
+
+                target:add("defines", "SLANG_VC=14", { force = true, public = true })
+            elseif target:has_tool("cc", "clang") then
+                target:add("defines", "SLANG_CLANG=1", { force = true, public = true })
+            elseif target:has_tool("cc", "gcc") then
+                target:add("defines", "SLANG_GCC=1", { force = true, public = true })
+            end
+
+            if options.on_config then
+                options.on_config(target)
+            end
+        end)
+
         from_table(options.includes, add_includedirs)
         from_table(options.files, add_files)
         from_table(options.deps, add_deps)
@@ -63,9 +95,6 @@ local add_slang_target = function (name, options)
             before_build(options.before_build)
         end
 
-        if options.on_config then
-            on_config(options.on_config)
-        end
 
         set_enabled(not options.enabled or false)
         set_policy("build.fence", options.fence or false)
@@ -99,6 +128,7 @@ add_slang_target("compiler-core", {
     deps = {
         { "core", { public = false } }
     },
+    windows_files = "compiler-core/windows/*.cpp",
     packages = {
         { "slang-spirv-headers", { public = true } }
     }
@@ -251,6 +281,7 @@ add_slang_target("slang-lookup-tables", {
 
 add_slang_target("slang-reflect-headers", {
     kind = "phony",
+    fence = true,
     includes = {
         { "$(buildir)/ast-reflect", { public = true } }
     },
@@ -294,8 +325,8 @@ add_slang_target("slang", {
     default = true,
     kind = "shared",
     includes = {
-        { "$(projectdir)", "$(projectdir)/include", { public = true } },
-        { "$(buildir)", { public = false } }
+        { "$(projectdir)/include", { public = true } },
+        { "$(projectdir)", "$(buildir)", { public = false } }
     },
     files = { {
         "slang/*.cpp",

@@ -1,0 +1,103 @@
+name: Build
+permissions:
+  contents: write
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  LLVM_VERSION: 18
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { runner: windows-latest, os: windows, arch: x64,    mode: debug,   toolchain: msvc,     runtime: MTd }
+          - { runner: windows-latest, os: windows, arch: x64,    mode: release, toolchain: msvc,     runtime: MT  }
+
+          - { runner: windows-latest, os: windows, arch: x64,    mode: debug,   toolchain: clang-cl, runtime: MTd }
+          - { runner: windows-latest, os: windows, arch: x64,    mode: release, toolchain: clang-cl, runtime: MT  }
+
+          - { runner: ubuntu-22.04,   os: linux,   arch: x86_64, mode: debug,   toolchain: clang-18, runtime: c++_static }
+          - { runner: ubuntu-22.04,   os: linux,   arch: x86_64, mode: release, toolchain: clang-18, runtime: c++_static }
+
+          - { runner: ubuntu-22.04,   os: linux,   arch: x86_64, mode: debug,   toolchain: gcc,      runtime: stdc++_static }
+          - { runner: ubuntu-22.04,   os: linux,   arch: x86_64, mode: release, toolchain: gcc,      runtime: stdc++_static }
+
+    runs-on: ${{ matrix.platform.runner }}
+    steps:
+      - name: Get current date as package key
+        id: cache_key
+        run: echo "key=$(date +'%W')" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: "Set OUTPUT_FILE variable"
+        run: echo "OUTPUT_FILE=${{ matrix.platform.os }}_${{ matrix.platform.arch }}_${{ matrix.platform.mode }}_${{ matrix.platform.toolchain }}_${{ matrix.platform.runtime }}${{ matrix.platform.archive_ext }}" >> $GITHUB_ENV
+        shell: bash
+
+      - name: Set xmake env
+        run: echo "XMAKE_GLOBALDIR=${{ runner.workspace }}/xmake-global" >> $GITHUB_ENV
+        shell: bash
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install LLVM (Unix)
+        if: ${{ matrix.platform.os == 'linux' && contains(matrix.platform.toolchain, 'clang') }}
+        run: |
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+          sudo add-apt-repository -y "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main"
+          sudo add-apt-repository -y "deb-src http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main"
+          sudo apt-get update -y
+          sudo apt-get install -y clang-${{ env.LLVM_VERSION }} lld-${{ env.LLVM_VERSION }} llvm-${{ env.LLVM_VERSION }} libllvm${{ env.LLVM_VERSION }} llvm-${{ env.LLVM_VERSION }}-runtime libclang-common-${{ env.LLVM_VERSION }}-dev libclang-${{ env.LLVM_VERSION }}-dev libclang1-${{ env.LLVM_VERSION }} libclang-rt-${{ env.LLVM_VERSION }}-dev libc++-${{ env.LLVM_VERSION }}-dev libc++abi-${{ env.LLVM_VERSION }}-dev libunwind-${{ env.LLVM_VERSION }}-dev libllvmlibc-${{ env.LLVM_VERSION }}-dev
+
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: branch@dev
+          actions-cache-folder: .xmake-cache-W${{ steps.cache_key.outputs.key }}
+
+      - name: Update xmake repository
+        run: xmake repo --update -vD
+
+      - name: Retrieve dependencies hash
+        id: dep_hash
+        run: echo "hash=$(xmake l utils.ci.packageskey)" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Restore cached xmake dependencies
+        id: restore-depcache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.XMAKE_GLOBALDIR }}/.xmake/packages
+          key: ${{ matrix.platform.os }}-${{ matrix.platform.arch }}-${{ matrix.platform.mode }}-${{ matrix.platform.runtime }}-${{ matrix.platform.toolchain }}-${{ steps.dep_hash.outputs.hash }}-W${{ steps.cache_key.outputs.key }}
+
+      - name: Configure xmake and install dependencies
+        run: xmake config -vD --toolchain=${{ matrix.platform.toolchain }} --arch=${{ matrix.platform.arch }} --mode=${{ matrix.platform.mode }} --runtimes=${{ matrix.platform.runtime }} --yes --policies=package.precompiled:n
+
+      - name: Save cached xmake dependencies
+        if: ${{ !steps.restore-depcache.outputs.cache-hit }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.XMAKE_GLOBALDIR }}/.xmake/packages
+          key: ${{ steps.restore-depcache.outputs.cache-primary-key }}
+
+      - name: Build all targets
+        run: xmake build -vD -a
+
+      - name: Install
+        run: xmake install -vDo dest/
+
+      - name: Archive production artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform.os }}-${{ matrix.platform.arch }}-${{ matrix.platform.mode }}-${{ matrix.platform.toolchain }}-${{ matrix.platform.runtime }}
+          path: |
+            dest
+

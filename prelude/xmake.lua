@@ -2,6 +2,8 @@ target("prelude")
     set_kind("object")
     add_packages("unordered_dense")
     add_deps("slang-embed")
+    set_languages("cxx17")
+    set_warnings("none")
 
     add_files(
         "slang-cpp-host-prelude.h.cpp",
