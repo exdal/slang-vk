@@ -104,22 +104,6 @@ add_slang_target("compiler-core", {
     }
 })
 
---  ── slang-rt ────────────────────────────────────────────────────────
-add_slang_target("slang-rt", {
-    kind = "shared",
-    includes = {
-        { "$(projectdir)/include", { public = true } },
-    },
-    files = {
-        { "core/*.cpp" },
-    },
-    packages = {
-        { "miniz", "lz4", { public = false } },
-        { "unordered_dense", { public = true } },
-    },
-    export_macro_prefix = "SLANG_RT",
-})
-
 --  ── slang-core-module ───────────────────────────────────────────────
 local core_module_common_args = {
     kind = get_config("lib_type"),
