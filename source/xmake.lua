@@ -5,6 +5,8 @@ add_requires("unordered_dense v4.5.0")
 add_requires("miniz 2.2.0")
 add_requires("lz4 v1.10.0")
 add_requires("slang-spirv-headers sync")
+add_requires("slang-glslang sync")
+add_requires("slang-spirv-tools sync")
 
 --  ── Functions ───────────────────────────────────────────────────────
 local add_slang_target = function (name, options)
@@ -94,7 +96,6 @@ local add_slang_target = function (name, options)
         if options.before_build then
             before_build(options.before_build)
         end
-
 
         set_enabled(not options.enabled or false)
         set_policy("build.fence", options.fence or false)
@@ -365,21 +366,16 @@ add_slang_target("slang-without-embedded-core-module", {
 })
 
 --  ── slang-glslang ───────────────────────────────────────────────────
-if has_config("enable_glslang") then
-    add_requires("slang-glslang sync")
-    add_requires("slang-spirv-tools sync")
-
-    add_slang_target("slang-glslang", {
-        kind = "shared",
-        includes = { {
-            "$(projectdir)/source/slang-glslang",
-            "$(projectdir)/include"
-        } },
-        files = { {
-            "slang-glslang/slang-glslang.cpp",
-        } },
-        packages = { {
-            "slang-glslang", "slang-spirv-headers", "slang-spirv-tools"
-        } },
-    })
-end
+add_slang_target("slang-glslang", {
+    kind = "shared",
+    includes = { {
+        "$(projectdir)/source/slang-glslang",
+        "$(projectdir)/include"
+    } },
+    files = { {
+        "slang-glslang/slang-glslang.cpp",
+    } },
+    packages = { {
+        "slang-glslang", "slang-spirv-headers", "slang-spirv-tools"
+    } },
+})

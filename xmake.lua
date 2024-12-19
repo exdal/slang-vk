@@ -31,18 +31,13 @@ option("embed_core_module")
     add_defines("SLANG_EMBED_CORE_MODULE")
 option_end()
 
-option("enable_glslang")
-    set_default(true)
-    set_description("Enable glslang dependency and slang-glslang wrapper target")
-option_end()
-
 option("enable_replayer")
     set_default(true)
     set_description("Enable slang-replay tool")
 option_end()
 
 option("lib_type")
-    set_default("shared")
+    set_default("static")
 option_end()
 
 includes("tools")
