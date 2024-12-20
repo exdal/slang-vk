@@ -2863,7 +2863,8 @@ static void _calcViewInitiatingHierarchy(
     for (auto& [_, value] : outHierarchy)
     {
         value.sort(
-            [](SourceView* a, SourceView* b) -> bool {
+            [](SourceView* a, SourceView* b) -> bool
+            {
                 return a->getInitiatingSourceLoc().getRaw() < b->getInitiatingSourceLoc().getRaw();
             });
     }

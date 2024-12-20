@@ -5,6 +5,7 @@ local add_generator = function(dir, options)
         set_kind(options.kind or "binary")
         set_languages("cxx17")
         set_warnings("none")
+        add_rpathdirs("@executable_path")
 
         set_policy("build.fence", true)
 
@@ -19,24 +20,39 @@ local add_generator = function(dir, options)
 
         add_deps("core")
 
-        if options.links then
-            for _, dep in ipairs(options.links) do
+        if options.deps then
+            for _, dep in ipairs(options.deps) do
                 add_deps(dep)
             end
         end
+
+        if options.links then
+            for _, dep in ipairs(options.links) do
+                add_links(dep)
+            end
+        end
+
     target_end()
 end
 
 add_generator("slang-embed")
 add_generator("slang-generate")
-add_generator("slang-lookup-generator", { links = { "compiler-core" } })
-add_generator("slang-capability-generator", { links = { "compiler-core" } })
-add_generator("slang-spirv-embed-generator", { links = { "compiler-core" } })
+add_generator("slang-lookup-generator", { deps = { "compiler-core" } })
+add_generator("slang-capability-generator", { deps = { "compiler-core" } })
+add_generator("slang-spirv-embed-generator", { deps = { "compiler-core" } })
 
-add_generator("slang-cpp-parser", { kind = "static", includes = ".", links = { "compiler-core" } })
-add_generator("slang-cpp-extractor", { links = { "compiler-core", "slang-cpp-parser" } })
+add_generator("slang-cpp-parser", { kind = "static", includes = ".", deps = { "compiler-core" } })
+add_generator("slang-cpp-extractor", { deps = { "compiler-core", "slang-cpp-parser" } })
 
 add_generator("$(projectdir)/source/slangc", {
     name = "slang-bootstrap",
-    links = { "slang-without-embedded-core-module", "prelude", "slang-capability-lookup", "slang-lookup-tables" }
+    deps = {
+        "prelude",
+        "slang-capability-lookup",
+        "slang-lookup-tables",
+        "slang-without-embedded-core-module", -- needs to stay here for fence
+    },
+    links = {
+        "slang-without-embedded-core-module",
+    }
 })

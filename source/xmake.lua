@@ -32,6 +32,8 @@ local add_slang_target = function (name, options)
         set_default(options.default or false)
         set_languages("cxx17")
         set_warnings("extra")
+        add_rpathdirs("@executable_path")
+        add_ldflags("-Wl,--no-undefined", "-Wl,--build-id", { public = false })
 
         on_config(function (target)
             if is_mode("debug") then
@@ -71,12 +73,14 @@ local add_slang_target = function (name, options)
         from_table(options.packages, add_packages)
         from_table(options.defines, add_defines)
         from_table(options.config_files, add_configfiles)
+        from_table(options.ldflags, add_ldflags)
 
         if options.export_macro_prefix then
-            if kind == "shared" then
+            local export_type_as = options.export_type_as or ""
+            if kind == "shared" or export_type_as == "shared" then
                 add_defines(options.export_macro_prefix .. "_DYNAMIC", { public = true })
                 add_defines(options.export_macro_prefix .. "_DYNAMIC_EXPORT", { public = false })
-            elseif kind == "static" then
+            elseif kind == "static" or export_type_as == "static" then
                 add_defines(options.export_macro_prefix .. "_STATIC", { public = true })
             end
         end
@@ -137,18 +141,47 @@ add_slang_target("compiler-core", {
 
 --  ── slang-core-module ───────────────────────────────────────────────
 local core_module_common_args = {
-    kind = get_config("lib_type"),
+    kind = "object",
+    export_type_as = "shared",
+    export_macro_prefix = "SLANG",
     files = {
         { "slang-core-module/slang-embedded-core-module.cpp" }
     },
     deps = {
         { "core", { public = false } }
     },
-    export_macro_prefix = "SLANG",
 }
 
+add_slang_target("slang-no-embedded-core-module", core_module_common_args)
+add_slang_target("slang-embedded-core-module", {
+    core_module_common_args,
+    defines = {
+        { "SLANG_EMBED_CORE_MODULE", { public = false } }
+    },
+    includes = {
+        { "$(buildir)", { public = false } }
+    },
+    deps = {
+        { "slang-bootstrap" },
+    },
+    before_build = function ()
+        import("core.project.config")
+        local output_dir = config.buildir()
+        local generated_header = path.join(output_dir, "slang-core-module-generated.h")
+
+        os.vrunv("$(projectdir)/generators/slang-bootstrap", {
+            "-archive-type", "riff-lz4", "-save-core-module-bin-source", generated_header
+        })
+    end
+})
+
 local core_module_source_common_args = {
-    kind = get_config("lib_type"),
+    kind = "object",
+    export_macro_prefix = "SLANG",
+    export_type_as = "shared",
+    includes = {
+        { "$(buildir)/core-module-meta", { public = false } }
+    },
     files = {
         { "slang-core-module/slang-embedded-core-module-source.cpp" }
     },
@@ -162,8 +195,8 @@ local core_module_source_common_args = {
     packages = {
         { "slang-spirv-headers" }
     },
-    includes = {
-        { "$(buildir)/core-module-meta", { public = false } }
+    defines = {
+        { "SLANG_EMBED_CORE_MODULE_SOURCE", { public = false } }
     },
     before_build = function ()
         import("core.project.config")
@@ -181,34 +214,10 @@ local core_module_source_common_args = {
     end
 }
 
-add_slang_target("slang-no-embedded-core-module", core_module_common_args)
-add_slang_target("slang-no-embedded-core-module-source", core_module_source_common_args)
+-- NOTE: For some reason, they both got `SLANG_EMBED_CORE_MODULE_SOURCE` macro
+-- not an issue of mine :shrug:
+add_slang_target("slang-embedded-core-module-source", core_module_source_common_args)
 
-add_slang_target("slang-embedded-core-module", {
-    core_module_common_args,
-    defines = {
-        { "SLANG_EMBED_CORE_MODULE", { public = false } }
-    },
-    includes = {
-        { "$(buildir)", { public = false } }
-    },
-    enabled = get_config("embed_core_module"),
-    before_build = function ()
-        import("core.project.config")
-        local output_dir = config.buildir()
-        local generated_header = path.join(output_dir, "slang-core-module-generated.h")
-
-        os.vrunv("$(projectdir)/generators/slang-bootstrap", {
-            "-archive-type", "riff-lz4", "-save-core-module-bin-source", generated_header
-        })
-    end
-})
-add_slang_target("slang-embedded-core-module-source", {
-    core_module_source_common_args,
-    defines = {
-        { "SLANG_EMBED_CORE_MODULE_SOURCE", { public = false } }
-    },
-})
 --  ── slang ───────────────────────────────────────────────────────────
 add_slang_target("slang-capability-defs", {
     kind = "object",
@@ -231,7 +240,7 @@ add_slang_target("slang-capability-defs", {
                 path.join(os.projectdir(), "docs/dummy.md")
             })
       end
-    end,
+   end,
 })
 
 add_slang_target("slang-capability-lookup", {
@@ -322,11 +331,31 @@ add_slang_target("slang-reflect-headers", {
     end
 })
 
-add_slang_target("slang", {
-    default = true,
-    kind = "shared",
+local slang_deps_args = {
+    "core",
+    "prelude",
+    "compiler-core",
+    "slang-capability-defs",
+    "slang-capability-lookup",
+    "slang-reflect-headers",
+    "slang-lookup-tables",
+    { public = false }
+}
+
+local slang_packages_args = {
+    "slang-spirv-headers",
+    { public = false }
+}
+
+local slang_public_includes = {
+    "$(projectdir)/include", { public = true },
+}
+
+add_slang_target("slang-common-objects", {
+    kind = "object",
+    export_macro_prefix = "SLANG",
+    export_type_as = "shared",
     includes = {
-        { "$(projectdir)/include", { public = true } },
         { "$(projectdir)", "$(buildir)", { public = false } }
     },
     files = { {
@@ -334,35 +363,48 @@ add_slang_target("slang", {
         "slang-record-replay/record/*.cpp",
         "slang-record-replay/util/*.cpp",
     } },
-    deps = { {
-        "core",
-        "prelude",
-        "compiler-core",
-        "slang-capability-defs",
-        "slang-capability-lookup",
-        "slang-reflect-headers",
-        "slang-lookup-tables",
-        not get_config("embed_core_module") and "slang-embedded-core-module" or "slang-no-embedded-core-module",
-        not get_config("embed_core_module_source") and "slang-embedded-core-module-source" or "slang-no-embedded-core-module-source",
-        { public = false }
-    } },
-    packages = {
-        { "slang-spirv-headers" }
+    config_files = {
+        { "$(projectdir)/slang-tag-version.h.in", { filename = "slang-tag-version.h", public = true } },
     },
     defines = {
         { "SLANG_USE_SYSTEM_SPIRV_HEADER" }
     },
-    export_macro_prefix = "SLANG",
-    config_files = {
-        { "$(projectdir)/slang-tag-version.h.in", { filename = "slang-tag-version.h" } },
-    },
+    deps = { slang_deps_args },
+    packages = { slang_packages_args },
 })
 
 add_slang_target("slang-without-embedded-core-module", {
-    kind = "phony",
-    deps = {
-        { "slang", { public = true } }
+    kind = "shared",
+    fence = true,
+    includes = {
+        slang_public_includes,
     },
+    deps = {
+        slang_deps_args,
+        { "slang-common-objects",
+          "slang-no-embedded-core-module",
+          "slang-embedded-core-module-source",
+          { public = false },
+        }
+    },
+    packages = { slang_packages_args }
+})
+
+add_slang_target("slang", {
+    default = true,
+    kind = "shared",
+    includes = {
+        slang_public_includes,
+    },
+    deps = {
+        slang_deps_args,
+        { "slang-embedded-core-module",
+          "slang-embedded-core-module-source",
+          "slang-common-objects",
+          { public = false },
+        }
+    },
+    packages = { slang_packages_args },
 })
 
 --  ── slang-glslang ───────────────────────────────────────────────────
@@ -377,5 +419,8 @@ add_slang_target("slang-glslang", {
     } },
     packages = { {
         "slang-glslang", "slang-spirv-headers", "slang-spirv-tools"
+    } },
+    ldflags = { {
+        "-Wl,--exclude-libs,ALL"
     } },
 })

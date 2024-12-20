@@ -1,16 +1,23 @@
 // slang-downstream-compiler.cpp
 #include "slang-downstream-compiler-util.h"
 
+#include "../core/slang-blob.h"
+#include "../core/slang-char-util.h"
 #include "../core/slang-common.h"
 #include "../core/slang-io.h"
+#include "../core/slang-shared-library.h"
+#include "../core/slang-string-util.h"
 #include "../core/slang-type-text-util.h"
+#include "slang-com-helper.h"
 
 #ifdef SLANG_VC
 #include "windows/slang-win-visual-studio-util.h"
 #endif
 
-//
+#include "slang-gcc-compiler-util.h"
 #include "slang-glslang-compiler.h"
+#include "slang-llvm-compiler.h"
+#include "slang-visual-studio-compiler-util.h"
 
 namespace Slang
 {
@@ -342,9 +349,19 @@ DownstreamCompilerMatchVersion DownstreamCompilerUtil::getCompiledVersion()
 /* static */ void DownstreamCompilerUtil::setDefaultLocators(
     DownstreamCompilerLocatorFunc outFuncs[int(SLANG_PASS_THROUGH_COUNT_OF)])
 {
+    // NOTE: exdal: Removed non-glsl stuff
+    outFuncs[int(SLANG_PASS_THROUGH_VISUAL_STUDIO)] = &VisualStudioCompilerUtil::locateCompilers;
+    outFuncs[int(SLANG_PASS_THROUGH_CLANG)] = &GCCDownstreamCompilerUtil::locateClangCompilers;
+    outFuncs[int(SLANG_PASS_THROUGH_GCC)] = &GCCDownstreamCompilerUtil::locateGCCCompilers;
+    // outFuncs[int(SLANG_PASS_THROUGH_NVRTC)] = &NVRTCDownstreamCompilerUtil::locateCompilers;
+    // outFuncs[int(SLANG_PASS_THROUGH_DXC)] = &DXCDownstreamCompilerUtil::locateCompilers;
+    // outFuncs[int(SLANG_PASS_THROUGH_FXC)] = &FXCDownstreamCompilerUtil::locateCompilers;
     outFuncs[int(SLANG_PASS_THROUGH_GLSLANG)] = &GlslangDownstreamCompilerUtil::locateCompilers;
     outFuncs[int(SLANG_PASS_THROUGH_SPIRV_OPT)] = &SpirvOptDownstreamCompilerUtil::locateCompilers;
+    outFuncs[int(SLANG_PASS_THROUGH_LLVM)] = &LLVMDownstreamCompilerUtil::locateCompilers;
     outFuncs[int(SLANG_PASS_THROUGH_SPIRV_DIS)] = &SpirvDisDownstreamCompilerUtil::locateCompilers;
+    // outFuncs[int(SLANG_PASS_THROUGH_METAL)] = &MetalDownstreamCompilerUtil::locateCompilers;
+    // outFuncs[int(SLANG_PASS_THROUGH_TINT)] = &TintDownstreamCompilerUtil::locateCompilers;
 }
 
 static String _getParentPath(const String& path)
