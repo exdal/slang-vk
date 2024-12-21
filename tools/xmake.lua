@@ -5,7 +5,7 @@ local add_generator = function(dir, options)
         set_kind(options.kind or "binary")
         set_languages("cxx17")
         set_warnings("none")
-        add_rpathdirs("@executable_path")
+        --add_rpathdirs("@executable_path")
 
         set_policy("build.fence", true)
 
