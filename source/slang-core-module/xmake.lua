@@ -66,7 +66,7 @@ add_slang_target("slang-embedded-core-module-source", {
         import("core.project.config")
         local output_dir = path.join(config.buildir(), "core-module-meta")
         local args = {}
-        for _, v in ipairs(os.files("$(scriptdir)/../slang/*.meta.slang")) do
+        for _, v in ipairs(os.files("$(projectdir)/source/slang/*.meta.slang")) do
             table.insert(args, v)
         end
 
