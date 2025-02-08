@@ -55,11 +55,12 @@ protected:
         IRPackOffsetDecoration* decoration) SLANG_OVERRIDE;
 
     virtual void emitMeshShaderModifiersImpl(IRInst* varInst) SLANG_OVERRIDE;
+    virtual void emitSimpleTypeAndDeclaratorImpl(IRType* type, DeclaratorInfo* declarator)
+        SLANG_OVERRIDE;
     virtual void emitSimpleTypeImpl(IRType* type) SLANG_OVERRIDE;
     virtual void emitVectorTypeNameImpl(IRType* elementType, IRIntegerValue elementCount)
         SLANG_OVERRIDE;
     virtual void emitVarDecorationsImpl(IRInst* varDecl) SLANG_OVERRIDE;
-    virtual void emitMatrixLayoutModifiersImpl(IRType* varType) SLANG_OVERRIDE;
     virtual void emitParamTypeModifier(IRType* type) SLANG_OVERRIDE
     {
         emitMatrixLayoutModifiersImpl(type);
@@ -81,7 +82,7 @@ protected:
 
     virtual void emitPostKeywordTypeAttributesImpl(IRInst* inst) SLANG_OVERRIDE;
 
-    void _emitPrefixTypeAttr(IRAttr* attr) SLANG_OVERRIDE;
+    virtual void _emitPrefixTypeAttr(IRAttr* attr) SLANG_OVERRIDE;
 
     // Emit a single `register` semantic, as appropriate for a given resource-type-specific layout
     // info Keyword to use in the uniform case (`register` for globals, `packoffset` inside a
@@ -117,6 +118,7 @@ protected:
 
     void _emitHLSLDecorationSingleString(const char* name, IRFunc* entryPoint, IRStringLit* val);
     void _emitHLSLDecorationSingleInt(const char* name, IRFunc* entryPoint, IRIntLit* val);
+    void _emitHLSLDecorationSingleFloat(const char* name, IRFunc* entryPoint, IRFloatLit* val);
 
     void _emitStageAccessSemantic(IRStageAccessDecoration* decoration, const char* name);
 };

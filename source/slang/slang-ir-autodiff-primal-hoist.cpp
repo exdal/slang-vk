@@ -344,7 +344,17 @@ RefPtr<HoistedPrimalsInfo> AutodiffCheckpointPolicyBase::processFunc(
                 continue;
             }
 
+            // General case: we'll add all primal operands to the work list.
             addPrimalOperandsToWorkList(child);
+
+            // Also add type annotations to the list, since these have to be made available to the
+            // function context.
+            //
+            if (as<IRDifferentiableTypeAnnotation>(child))
+            {
+                checkpointInfo->recomputeSet.add(child);
+                addPrimalOperandsToWorkList(child);
+            }
 
             // We'll be conservative with the decorations we consider as differential uses
             // of a primal inst, in order to avoid weird behaviour with some decorations
@@ -374,7 +384,21 @@ RefPtr<HoistedPrimalsInfo> AutodiffCheckpointPolicyBase::processFunc(
 
             processedUses.add(use);
 
-            HoistResult result = this->classify(use);
+            HoistResult result = HoistResult::none();
+
+            // Sometimes, we already have a decision for this val.
+            //
+            // This is a workaround to some of the problems
+            // with the multi-pass approach where we can see an
+            // inst that was already classified, but through a
+            // different use.
+            //
+            if (checkpointInfo->recomputeSet.contains(use.usedVal))
+                result = HoistResult::recompute(use.usedVal);
+            else if (checkpointInfo->storeSet.contains(use.usedVal))
+                result = HoistResult::store(use.usedVal);
+            else
+                result = this->classify(use);
 
             if (result.mode == HoistResult::Mode::Store)
             {
@@ -489,6 +513,15 @@ RefPtr<HoistedPrimalsInfo> AutodiffCheckpointPolicyBase::processFunc(
                         if (callVarWorkListSet.add(callUser))
                             callVarWorkList.add(callUser);
                     }
+                }
+
+                // This is a bit of a hack.. ideally we need to add the var to the worklist for
+                // further processing rather than replicating those operations here.
+                //
+                for (auto use = var->firstUse; use; use = use->nextUse)
+                {
+                    if (isDifferentialInst(use->getUser()))
+                        usesToReplace.add(use);
                 }
             }
             else if (auto call = as<IRCall>(inst))
@@ -1333,7 +1366,7 @@ struct UseChain
         return result;
     }
 
-    void replace(IRBuilder* builder, IRInst* inst)
+    void replace(IROutOfOrderCloneContext* ctx, IRBuilder* builder, IRInst* inst)
     {
         SLANG_ASSERT(chain.getCount() > 0);
 
@@ -1345,30 +1378,27 @@ struct UseChain
             return;
         }
 
-        IRCloneEnv env;
-
         // Pop the last use, which is the base use that needs to be replaced.
         auto baseUse = chain.getLast();
         chain.removeLast();
 
         // Ensure that replacement inst is set as mapping for the baseUse.
-        env.mapOldValToNew[baseUse->get()] = inst;
-
-        auto lastInstInChain = inst;
+        ctx->cloneEnv.mapOldValToNew[baseUse->get()] = inst;
 
         IRBuilder chainBuilder(builder->getModule());
         setInsertAfterOrdinaryInst(&chainBuilder, inst);
 
         chain.reverse();
+        chain.removeLast();
 
         // Clone the rest of the chain.
         for (auto& use : chain)
         {
-            lastInstInChain = cloneInst(&env, &chainBuilder, use->get());
+            ctx->cloneInstOutOfOrder(&chainBuilder, use->get());
         }
 
-        // Replace the base use.
-        builder->replaceOperand(chain.getLast(), lastInstInChain);
+        // We won't actually replace the final use, because if there are multiple chains
+        // it can cause problems. The parent UseGraph will handle that.
 
         chain.clear();
     }
@@ -1380,13 +1410,93 @@ struct UseChain
     }
 };
 
+struct UseGraph
+{
+    // Set of linear paths to the base use.
+    // Note that some nodes may be common to multiple paths.
+    //
+    OrderedDictionary<IRUse*, List<UseChain>> chainSets;
+
+    static UseGraph from(
+        IRInst* baseInst,
+        Func<bool, IRUse*> isRelevantUse,
+        Func<bool, IRInst*> passthroughInst)
+    {
+        UseGraph result;
+        for (auto use = baseInst->firstUse; use;)
+        {
+            auto nextUse = use->nextUse;
+
+            auto chains = UseChain::from(use, isRelevantUse, passthroughInst);
+            for (auto& chain : chains)
+            {
+                auto finalUse = chain.chain.getFirst();
+
+                if (!result.chainSets.containsKey(finalUse))
+                {
+                    result.chainSets[finalUse] = List<UseChain>();
+                }
+
+                result.chainSets[finalUse].getValue().add(chain);
+            }
+
+            use = nextUse;
+        }
+        return result;
+    }
+
+    void replace(IRBuilder* builder, IRUse* use, IRInst* inst)
+    {
+        // Since we may have common nodes, we will use an out-of-order cloning context
+        // that can retroactively correct the uses as needed.
+        //
+        IROutOfOrderCloneContext ctx;
+        List<UseChain> chains = chainSets[use];
+        for (auto chain : chains)
+        {
+            chain.replace(&ctx, builder, inst);
+        }
+
+        if (!isTrivial())
+        {
+            builder->setInsertBefore(use->getUser());
+            auto lastInstInChain = ctx.cloneInstOutOfOrder(builder, use->get());
+
+            // Replace the base use.
+            builder->replaceOperand(use, lastInstInChain);
+        }
+    }
+
+    bool isTrivial()
+    {
+        // We're trivial if there's only one chain, and it has only one use.
+        if (chainSets.getCount() != 1)
+            return false;
+
+        auto& chain = chainSets.getFirst().value;
+        return chain.getCount() == 1;
+    }
+
+    List<IRUse*> getUniqueUses() const
+    {
+        List<IRUse*> result;
+
+        for (auto& pair : chainSets)
+        {
+            result.add(pair.key);
+        }
+
+        return result;
+    }
+};
+
 
 // Trim defBlockIndices based on the indices of out of scope uses.
 //
 static List<IndexTrackingInfo> maybeTrimIndices(
     const List<IndexTrackingInfo>& defBlockIndices,
     const Dictionary<IRBlock*, List<IndexTrackingInfo>>& indexedBlockInfo,
-    const List<UseChain>& outOfScopeUses)
+    const List<IRUse*>& outOfScopeUses)
 {
     // Go through uses, lookup the defBlockIndices, and remove any indices if they
     // are not present in any of the uses. (This is sort of slow...)
@@ -1397,7 +1507,7 @@ static List<IndexTrackingInfo> maybeTrimIndices(
         bool found = false;
         for (const auto& use : outOfScopeUses)
         {
-            auto useInst = use.getUser();
+            auto useInst = use->getUser();
             auto useBlock = useInst->getParent();
             auto useBlockIndices = indexedBlockInfo.getValue(as<IRBlock>(useBlock));
             if (useBlockIndices.contains(index))
@@ -1419,7 +1529,8 @@ bool canInstBeStored(IRInst* inst)
     // stored into variables or context structs as normal values.
     //
     if (as<IRTypeType>(inst->getDataType()) || as<IRWitnessTableType>(inst->getDataType()) ||
-        as<IRTypeKind>(inst->getDataType()) || as<IRFuncType>(inst->getDataType()))
+        as<IRTypeKind>(inst->getDataType()) || as<IRFuncType>(inst->getDataType()) ||
+        !inst->getDataType())
         return false;
 
     return true;
@@ -1577,6 +1688,9 @@ RefPtr<HoistedPrimalsInfo> ensurePrimalAvailability(
             //
             auto isPassthroughInst = [&](IRInst* inst)
             {
+                if (as<IRTerminatorInst>(inst))
+                    return false;
+
                 if (!canInstBeStored(inst))
                     return true;
 
@@ -1590,16 +1704,9 @@ RefPtr<HoistedPrimalsInfo> ensurePrimalAvailability(
                 return false;
             };
 
-            List<UseChain> outOfScopeUses;
-            for (auto use = instToStore->firstUse; use;)
-            {
-                auto nextUse = use->nextUse;
+            UseGraph useGraph = UseGraph::from(instToStore, isRelevantUse, isPassthroughInst);
 
-                List<UseChain> useChains = UseChain::from(use, isRelevantUse, isPassthroughInst);
-                outOfScopeUses.addRange(useChains);
-
-                use = nextUse;
-            }
+            List<IRUse*> outOfScopeUses = useGraph.getUniqueUses();
 
             if (outOfScopeUses.getCount() == 0)
             {
@@ -1659,10 +1766,10 @@ RefPtr<HoistedPrimalsInfo> ensurePrimalAvailability(
 
                 for (auto use : outOfScopeUses)
                 {
-                    setInsertBeforeOrdinaryInst(&builder, getInstInBlock(use.getUser()));
+                    setInsertBeforeOrdinaryInst(&builder, getInstInBlock(use->getUser()));
 
                     List<IndexTrackingInfo>& useBlockIndices =
-                        indexedBlockInfo[getBlock(use.getUser())];
+                        indexedBlockInfo[getBlock(use->getUser())];
 
                     IRInst* loadAddr = emitIndexedLoadAddressForVar(
                         &builder,
@@ -1670,7 +1777,8 @@ RefPtr<HoistedPrimalsInfo> ensurePrimalAvailability(
                         defBlock,
                         defBlockIndices,
                         useBlockIndices);
-                    use.replace(&builder, loadAddr);
+
+                    useGraph.replace(&builder, use, loadAddr);
                 }
 
                 if (!isRecomputeInst)
@@ -1729,11 +1837,13 @@ RefPtr<HoistedPrimalsInfo> ensurePrimalAvailability(
 
                 for (auto use : outOfScopeUses)
                 {
+                    // TODO: Prevent terminator insts from being treated as passthrough..
                     List<IndexTrackingInfo> useBlockIndices =
-                        indexedBlockInfo[getBlock(use.getUser())];
-                    setInsertBeforeOrdinaryInst(&builder, getInstInBlock(use.getUser()));
-                    use.replace(
+                        indexedBlockInfo[getBlock(use->getUser())];
+                    setInsertBeforeOrdinaryInst(&builder, getInstInBlock(use->getUser()));
+                    useGraph.replace(
                         &builder,
+                        use,
                         loadIndexedValue(
                             &builder,
                             localVar,

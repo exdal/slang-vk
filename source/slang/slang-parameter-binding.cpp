@@ -712,6 +712,15 @@ RefPtr<TypeLayout> getTypeLayoutForGlobalShaderParameter(
         return createTypeLayoutWith(layoutContext, specializationConstantRule, type);
     }
 
+    if (varDecl->hasModifier<InModifier>())
+    {
+        return createTypeLayoutWith(layoutContext, rules->getVaryingInputRules(), type);
+    }
+    else if (varDecl->hasModifier<OutModifier>())
+    {
+        return createTypeLayoutWith(layoutContext, rules->getVaryingOutputRules(), type);
+    }
+
     // TODO(tfoley): there may be other cases that we need to handle here
 
     // An "ordinary" global variable is implicitly a uniform
@@ -1064,15 +1073,44 @@ static void _maybeDiagnoseMissingVulkanLayoutModifier(
     ParameterBindingContext* context,
     DeclRef<VarDeclBase> const& varDecl)
 {
+    // Don't warn if the declaration is a vk::push_constant or shaderRecordEXT
+    if (varDecl.getDecl()->hasModifier<PushConstantAttribute>() ||
+        varDecl.getDecl()->hasModifier<ShaderRecordAttribute>())
+    {
+        return;
+    }
+
     // If the user didn't specify a `binding` (and optional `set`) for Vulkan,
     // but they *did* specify a `register` for D3D, then that is probably an
     // oversight on their part.
     if (auto registerModifier = varDecl.getDecl()->findModifier<HLSLRegisterSemantic>())
     {
+        auto varType = getType(context->getASTBuilder(), varDecl.as<VarDeclBase>());
+        if (auto textureType = as<TextureType>(varType))
+        {
+            if (textureType->isCombined())
+            {
+                // Recommend [[vk::binding]] but not '-fvk-xxx-shift` for combined texture samplers
+                getSink(context)->diagnose(
+                    registerModifier,
+                    Diagnostics::registerModifierButNoVulkanLayout,
+                    varDecl.getName());
+                return;
+            }
+        }
+
+        UnownedStringSlice registerClassName;
+        UnownedStringSlice registerIndexDigits;
+        splitNameAndIndex(
+            registerModifier->registerName.getContent(),
+            registerClassName,
+            registerIndexDigits);
+
         getSink(context)->diagnose(
             registerModifier,
-            Diagnostics::registerModifierButNoVulkanLayout,
-            varDecl.getName());
+            Diagnostics::registerModifierButNoVkBindingNorShift,
+            varDecl.getName(),
+            registerClassName);
     }
 }
 
@@ -1116,6 +1154,25 @@ static void addExplicitParameterBindings_GLSL(
 
         if (auto layoutAttr = varDecl.getDecl()->findModifier<VkConstantIdAttribute>())
             info[kResInfo].semanticInfo.index = layoutAttr->location;
+        else
+            return;
+    }
+
+    if (auto foundVaryingInput = typeLayout->FindResourceInfo(LayoutResourceKind::VaryingInput))
+    {
+        info[kResInfo].resInfo = foundVaryingInput;
+
+        if (auto layoutAttr = varDecl.getDecl()->findModifier<GLSLLocationAttribute>())
+            info[kResInfo].semanticInfo.index = layoutAttr->value;
+        else
+            return;
+    }
+    if (auto foundVaryingOutput = typeLayout->FindResourceInfo(LayoutResourceKind::VaryingOutput))
+    {
+        info[kResInfo].resInfo = foundVaryingOutput;
+
+        if (auto layoutAttr = varDecl.getDecl()->findModifier<GLSLLocationAttribute>())
+            info[kResInfo].semanticInfo.index = layoutAttr->value;
         else
             return;
     }
@@ -1228,7 +1285,6 @@ static void addExplicitParameterBindings_GLSL(
         return;
     }
 
-
     const auto hlslInfo = _extractLayoutSemanticInfo(context, hlslRegSemantic);
     if (hlslInfo.kind == LayoutResourceKind::None)
     {
@@ -1242,7 +1298,14 @@ static void addExplicitParameterBindings_GLSL(
     if (auto textureType = as<TextureType>(varType))
     {
         if (textureType->isCombined())
+        {
+            if (!warnedMissingVulkanLayoutModifier)
+            {
+                _maybeDiagnoseMissingVulkanLayoutModifier(context, varDecl.as<VarDeclBase>());
+                warnedMissingVulkanLayoutModifier = true;
+            }
             return;
+        }
     }
 
     // Can we map to a Vulkan kind in principal?
@@ -1909,7 +1972,8 @@ static RefPtr<TypeLayout> processEntryPointVaryingParameterDecl(
     // `location`s in declaration order coincidentally matches
     // the `SV_Target` order.
     //
-    if (isKhronosTarget(context->getTargetRequest()))
+    if (isKhronosTarget(context->getTargetRequest()) ||
+        isMetalTarget(context->getTargetRequest()) || isWGPUTarget(context->getTargetRequest()))
     {
         if (auto locationAttr = decl->findModifier<GLSLLocationAttribute>())
         {
@@ -2262,12 +2326,63 @@ static RefPtr<TypeLayout> processEntryPointVaryingParameter(
 
         return ptrTypeLayout;
     }
+    else if (auto optionalType = as<OptionalType>(type))
+    {
+        Array<Type*, 2> types =
+            makeArray(optionalType->getValueType(), context->getASTBuilder()->getBoolType());
+        auto tupleType = context->getASTBuilder()->getTupleType(types.getView());
+        return processEntryPointVaryingParameter(context, tupleType, state, varLayout);
+    }
+    else if (auto tupleType = as<TupleType>(type))
+    {
+        RefPtr<StructTypeLayout> structLayout = new StructTypeLayout();
+        structLayout->type = type;
+        for (Index i = 0; i < tupleType->getMemberCount(); i++)
+        {
+            auto fieldType = tupleType->getMember(i);
+            RefPtr<VarLayout> fieldVarLayout = new VarLayout();
+
+            // We don't really have a "field" decl, so just use the tuple-typed decl
+            // itself as the varDecl of the elements.
+            auto fieldDecl = (VarDeclBase*)varLayout->varDecl.getDecl();
+            fieldVarLayout->varDecl = fieldDecl;
+
+            structLayout->fields.add(fieldVarLayout);
+
+            auto fieldTypeLayout = processEntryPointVaryingParameterDecl(
+                context,
+                fieldDecl,
+                fieldType,
+                state,
+                fieldVarLayout);
+
+            if (!fieldTypeLayout)
+            {
+                getSink(context)->diagnose(
+                    varLayout->varDecl,
+                    Diagnostics::notValidVaryingParameter,
+                    fieldType);
+                continue;
+            }
+            fieldVarLayout->typeLayout = fieldTypeLayout;
+
+            // Assign offsets in var layout for each resource kind of the type.
+            for (auto fieldTypeResInfo : fieldTypeLayout->resourceInfos)
+            {
+                auto kind = fieldTypeResInfo.kind;
+                auto structTypeResInfo = structLayout->findOrAddResourceInfo(kind);
+                auto fieldResInfo = fieldVarLayout->findOrAddResourceInfo(kind);
+                fieldResInfo->index = structTypeResInfo->count.getFiniteValue();
+                structTypeResInfo->count += fieldTypeResInfo.count;
+            }
+        }
+        return structLayout;
+    }
     // Catch declaration-reference types late in the sequence, since
     // otherwise they will include all of the above cases...
     else if (auto declRefType = as<DeclRefType>(type))
     {
         auto declRef = declRefType->getDeclRef();
-
         if (auto structDeclRef = declRef.as<StructDecl>())
         {
             RefPtr<StructTypeLayout> structLayout = new StructTypeLayout();
@@ -3858,7 +3973,7 @@ static bool _calcNeedsDefaultSpace(SharedParameterBindingContext& sharedContext)
             {
             default:
                 break;
-
+            case LayoutResourceKind::PushConstantBuffer:
             case LayoutResourceKind::RegisterSpace:
             case LayoutResourceKind::SubElementRegisterSpace:
             case LayoutResourceKind::VaryingInput:
@@ -4250,7 +4365,7 @@ RefPtr<ProgramLayout> generateParameterBindings(TargetProgram* targetProgram, Di
             {
                 needDefaultConstantBuffer = true;
                 if (varLayout->varDecl.getDecl()->hasModifier<GLSLBindingAttribute>() ||
-                    varLayout->varDecl.getDecl()->hasModifier<GLSLLocationLayoutModifier>())
+                    varLayout->varDecl.getDecl()->hasModifier<GLSLLocationAttribute>())
                     sink->diagnose(
                         varLayout->varDecl,
                         Diagnostics::explicitUniformLocation,

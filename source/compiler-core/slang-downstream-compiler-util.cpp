@@ -349,19 +349,13 @@ DownstreamCompilerMatchVersion DownstreamCompilerUtil::getCompiledVersion()
 /* static */ void DownstreamCompilerUtil::setDefaultLocators(
     DownstreamCompilerLocatorFunc outFuncs[int(SLANG_PASS_THROUGH_COUNT_OF)])
 {
-    // NOTE: exdal: Removed non-glsl stuff
     outFuncs[int(SLANG_PASS_THROUGH_VISUAL_STUDIO)] = &VisualStudioCompilerUtil::locateCompilers;
     outFuncs[int(SLANG_PASS_THROUGH_CLANG)] = &GCCDownstreamCompilerUtil::locateClangCompilers;
     outFuncs[int(SLANG_PASS_THROUGH_GCC)] = &GCCDownstreamCompilerUtil::locateGCCCompilers;
-    // outFuncs[int(SLANG_PASS_THROUGH_NVRTC)] = &NVRTCDownstreamCompilerUtil::locateCompilers;
-    // outFuncs[int(SLANG_PASS_THROUGH_DXC)] = &DXCDownstreamCompilerUtil::locateCompilers;
-    // outFuncs[int(SLANG_PASS_THROUGH_FXC)] = &FXCDownstreamCompilerUtil::locateCompilers;
     outFuncs[int(SLANG_PASS_THROUGH_GLSLANG)] = &GlslangDownstreamCompilerUtil::locateCompilers;
     outFuncs[int(SLANG_PASS_THROUGH_SPIRV_OPT)] = &SpirvOptDownstreamCompilerUtil::locateCompilers;
     outFuncs[int(SLANG_PASS_THROUGH_LLVM)] = &LLVMDownstreamCompilerUtil::locateCompilers;
     outFuncs[int(SLANG_PASS_THROUGH_SPIRV_DIS)] = &SpirvDisDownstreamCompilerUtil::locateCompilers;
-    // outFuncs[int(SLANG_PASS_THROUGH_METAL)] = &MetalDownstreamCompilerUtil::locateCompilers;
-    // outFuncs[int(SLANG_PASS_THROUGH_TINT)] = &TintDownstreamCompilerUtil::locateCompilers;
 }
 
 static String _getParentPath(const String& path)

@@ -791,9 +791,10 @@ public:
     // Track the decl reference that caused the requirement of a capability atom.
     SLANG_UNREFLECTED List<DeclReferenceWithLoc> capabilityRequirementProvenance;
 
+    SLANG_UNREFLECTED bool hiddenFromLookup = false;
+
 private:
     SLANG_UNREFLECTED DeclRefBase* m_defaultDeclRef = nullptr;
-    SLANG_UNREFLECTED Index m_defaultDeclRefEpoch = -1;
 };
 
 class Expr : public SyntaxNode

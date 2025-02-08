@@ -138,6 +138,19 @@ SpvInst* emitOpTypeVector(
         componentCount);
 }
 
+template<typename T1, typename T2>
+SpvInst* emitOpTypeCoopVec(IRInst* inst, const T1& componentType, const T2& componentCount)
+{
+    static_assert(isSingular<T1>);
+    return emitInstMemoized(
+        getSection(SpvLogicalSectionID::ConstantsAndTypes),
+        inst,
+        SpvOpTypeCooperativeVectorNV,
+        kResultID,
+        componentType,
+        componentCount);
+}
+
 // https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html#OpTypeMatrix
 template<typename T>
 SpvInst* emitOpTypeMatrix(IRInst* inst, const T& columnType, const SpvLiteralInteger& columnCount)
@@ -2552,4 +2565,18 @@ SpvInst* emitOpAtomicIDecrement(
         memory,
         semantics);
 }
+
+// https://htmlpreview.github.io/?https://github.com/KhronosGroup/SPIRV-Registry/blob/main/extensions/AMD/SPV_AMDX_shader_enqueue.html#OpTypeNodePayloadArrayAMDX
+template<typename T>
+SpvInst* emitOpTypeNodePayloadArray(IRInst* inst, const T& type)
+{
+    static_assert(isSingular<T>);
+    return emitInstMemoized(
+        getSection(SpvLogicalSectionID::ConstantsAndTypes),
+        inst,
+        SpvOpTypeNodePayloadArrayAMDX,
+        kResultID,
+        type);
+}
+
 #endif // SLANG_IN_SPIRV_EMIT_CONTEXT

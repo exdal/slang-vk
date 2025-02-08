@@ -10,6 +10,17 @@
 
 namespace Slang
 {
+
+bool isFreeFormTypePackParam(SemanticsVisitor* visitor, Type* type, ParamDecl* paramDecl)
+{
+    if (auto declRef = isDeclRefTypeOf<GenericTypePackParamDecl>(type))
+    {
+        return visitor->GetOuterGeneric(declRef.getDecl()) ==
+               visitor->GetOuterGeneric(paramDecl->parentDecl);
+    }
+    return false;
+}
+
 SemanticsVisitor::ParamCounts SemanticsVisitor::CountParameters(
     FilteredMemberRefList<ParamDecl> params)
 {
@@ -25,9 +36,14 @@ SemanticsVisitor::ParamCounts SemanticsVisitor::CountParameters(
                 counts.required += typePack->getTypeCount();
                 allowedArgCountToAdd = typePack->getTypeCount();
             }
-            else
+            else if (isFreeFormTypePackParam(this, paramType, param.getDecl()))
             {
                 counts.allowed = -1;
+            }
+            else
+            {
+                counts.required++;
+                counts.allowed++;
             }
         }
         else if (!param.getDecl()->initExpr)
@@ -1297,6 +1313,21 @@ int SemanticsVisitor::CompareLookupResultItems(
     bool rightIsExtension = as<ExtensionDecl>(rightDeclRefParent.getDecl()) != nullptr;
     if (leftIsExtension != rightIsExtension)
     {
+        // Add a special case for constructors, where we prefer the one that is not synthesized,
+        if (auto leftCtor = as<ConstructorDecl>(left.declRef.getDecl()))
+        {
+            auto rightCtor = as<ConstructorDecl>(right.declRef.getDecl());
+            bool leftIsSynthesized =
+                leftCtor->containsFlavor(ConstructorDecl::ConstructorFlavor::SynthesizedDefault);
+            bool rightIsSynthesized =
+                rightCtor->containsFlavor(ConstructorDecl::ConstructorFlavor::SynthesizedDefault);
+
+            if (leftIsSynthesized != rightIsSynthesized)
+            {
+                return int(leftIsSynthesized) - int(rightIsSynthesized);
+            }
+        }
+
         return int(leftIsExtension) - int(rightIsExtension);
     }
     else if (leftIsExtension)
@@ -2151,7 +2182,8 @@ void SemanticsVisitor::AddTypeOverloadCandidates(Type* type, OverloadResolveCont
     // from a value of the same type. There is no need in Slang for
     // "copy constructors" but the core module currently has to define
     // some just to make code that does, e.g., `float(1.0f)` work.)
-
+    LookupOptions options =
+        LookupOptions(uint8_t(LookupOptions::IgnoreInheritance) | uint8_t(LookupOptions::NoDeref));
     LookupResult initializers = lookUpMember(
         m_astBuilder,
         this,
@@ -2159,8 +2191,7 @@ void SemanticsVisitor::AddTypeOverloadCandidates(Type* type, OverloadResolveCont
         type,
         context.sourceScope,
         LookupMask::Default,
-        LookupOptions::NoDeref);
-
+        options);
     AddOverloadCandidates(initializers, context);
 }
 
@@ -2529,7 +2560,6 @@ Expr* SemanticsVisitor::ResolveInvoke(InvokeExpr* expr)
     context.loc = expr->loc;
     context.sourceScope = m_outerScope;
     context.baseExpr = GetBaseExpr(funcExpr);
-
     // We run a special case here where an `InvokeExpr`
     // with a single argument where the base/func expression names
     // a type should always be treated as an explicit type coercion
@@ -2548,7 +2578,7 @@ Expr* SemanticsVisitor::ResolveInvoke(InvokeExpr* expr)
     // type coercion.
     bool typeOverloadChecked = false;
 
-    if (expr->arguments.getCount() == 1)
+    if (expr->arguments.getCount() == 1 && !as<ExplicitCtorInvokeExpr>(expr))
     {
         if (const auto typeType = as<TypeType>(funcExpr->type))
         {

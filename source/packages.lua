@@ -5,7 +5,7 @@ package("slang-spirv-headers")
     set_license("MIT")
 
     add_urls("https://github.com/KhronosGroup/SPIRV-Headers.git")
-    add_versions("sync", "36d5e2ddaa54c70d2f29081510c66f4fc98e5e53")
+    add_versions("sync", "e7294a8ebed84f8c5bd3686c68dbe12a4e65b644")
 
     add_deps("cmake")
 
@@ -31,7 +31,7 @@ package("slang-spirv-tools")
     set_license("Apache-2.0")
 
     add_urls("https://github.com/KhronosGroup/SPIRV-Tools.git")
-    add_versions("sync", "2b315c2eabe906a71757b598dfa2ee46dbd59dd9")
+    add_versions("sync", "3364b982713a0440d1d342dd5eec65b122a61b71")
 
     add_deps("slang-spirv-headers sync")
     add_deps("cmake >=3.17.2")

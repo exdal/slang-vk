@@ -80,6 +80,7 @@ class SyntaxNode;
 SourceLoc getDiagnosticPos(SyntaxNode const* syntax);
 SourceLoc getDiagnosticPos(TypeExp const& typeExp);
 SourceLoc getDiagnosticPos(DeclRefBase* declRef);
+SourceLoc getDiagnosticPos(Decl* decl);
 
 typedef NodeBase* (*SyntaxParseCallback)(Parser* parser, void* userData);
 
@@ -168,6 +169,11 @@ enum : ConversionCost
     kConversionCost_ScalarToMatrix = 10,
     kConversionCost_ScalarIntegerToFloatMatrix =
         kConversionCost_IntegerToFloatConversion + kConversionCost_ScalarToMatrix,
+
+    // Additional conversion cost to add when promoting from a scalar to
+    // a CoopVector (this will be added to the cost, if any, of converting
+    // the element type of the CoopVector)
+    kConversionCost_ScalarToCoopVector = 1,
 
     // Additional cost when casting an LValue.
     kConversionCost_LValueCast = 800,
@@ -412,6 +418,10 @@ enum class DeclCheckState : uint8_t
     /// is otherwise completely unchecked.
     ///
     Unchecked,
+
+    /// The declaration is parsed and inserted into the initial scope,
+    /// ready for future lookups from within the parser for disambiguation purposes.
+    ReadyForParserLookup,
 
     /// Basic checks on the modifiers of the declaration have been applied.
     ///
@@ -1225,6 +1235,7 @@ enum class LookupOptions : uint8_t
     /// checking to see if a keyword is shadowed.
     IgnoreInheritance =
         1 << 4, ///< Lookup only non inheritance children of a struct (including `extension`)
+    IgnoreTransparentMembers = 1 << 5,
 };
 inline LookupOptions operator&(LookupOptions a, LookupOptions b)
 {
@@ -1633,6 +1644,8 @@ enum ParameterDirection
     kParameterDirection_Ref,      ///< By-reference
     kParameterDirection_ConstRef, ///< By-const-reference
 };
+
+void printDiagnosticArg(StringBuilder& sb, ParameterDirection direction);
 
 /// The kind of a builtin interface requirement that can be automatically synthesized.
 enum class BuiltinRequirementKind

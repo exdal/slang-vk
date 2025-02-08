@@ -760,6 +760,12 @@ public:
         m_mapTypePairToImplicitCastMethod[key] = candidate;
     }
 
+    bool* isCStyleType(Type* type) { return m_isCStyleTypeCache.tryGetValue(type); }
+
+    void cacheCStyleType(Type* type, bool isCStyle)
+    {
+        m_isCStyleTypeCache.addIfNotExists(type, isCStyle);
+    }
     // Get the inner most generic decl that a decl-ref is dependent on.
     // For example, `Foo<T>` depends on the generic decl that defines `T`.
     //
@@ -789,12 +795,12 @@ private:
 
     InheritanceInfo _getInheritanceInfo(
         DeclRef<Decl> declRef,
-        DeclRefType* correspondingType,
+        Type* selfType,
         InheritanceCircularityInfo* circularityInfo);
     InheritanceInfo _calcInheritanceInfo(Type* type, InheritanceCircularityInfo* circularityInfo);
     InheritanceInfo _calcInheritanceInfo(
         DeclRef<Decl> declRef,
-        DeclRefType* correspondingType,
+        Type* selfType,
         InheritanceCircularityInfo* circularityInfo);
 
     void getDependentGenericParentImpl(DeclRef<GenericDecl>& genericParent, DeclRef<Decl> declRef);
@@ -889,6 +895,7 @@ private:
     Dictionary<DeclRef<Decl>, InheritanceInfo> m_mapDeclRefToInheritanceInfo;
     Dictionary<TypePair, SubtypeWitness*> m_mapTypePairToSubtypeWitness;
     Dictionary<ImplicitCastMethodKey, ImplicitCastMethod> m_mapTypePairToImplicitCastMethod;
+    Dictionary<Type*, bool> m_isCStyleTypeCache;
 };
 
 /// Local/scoped state of the semantic-checking system
@@ -1068,6 +1075,15 @@ public:
 
     Decl* getDeclToExcludeFromLookup() { return m_declToExcludeFromLookup; }
 
+    SemanticsContext excludeTransparentMembersFromLookup()
+    {
+        SemanticsContext result(*this);
+        result.m_excludeTransparentMembersFromLookup = true;
+        return result;
+    }
+
+    bool getExcludeTransparentMembersFromLookup() { return m_excludeTransparentMembersFromLookup; }
+
     OrderedHashSet<Type*>* getCapturedTypePacks() { return m_capturedTypePacks; }
 
     GLSLBindingOffsetTracker* getGLSLBindingOffsetTracker()
@@ -1083,6 +1099,8 @@ private:
     ExprLocalScope* m_exprLocalScope = nullptr;
 
     Decl* m_declToExcludeFromLookup = nullptr;
+
+    bool m_excludeTransparentMembersFromLookup = false;
 
 protected:
     // TODO: consider making more of this state `private`...
@@ -1142,6 +1160,12 @@ struct OuterScopeContextRAII
     OuterScopeContextRAII _outerScopeContextRAII(          \
         context,                                           \
         decl->ownedScope ? decl->ownedScope : context->getOuterScope())
+
+struct RequirementSynthesisResult
+{
+    bool suceeded = false;
+    operator bool() const { return suceeded; }
+};
 
 struct SemanticsVisitor : public SemanticsContext
 {
@@ -1262,6 +1286,7 @@ public:
         Expr* originalExpr);
 
     Expr* ConstructDerefExpr(Expr* base, SourceLoc loc);
+    Expr* constructDerefExpr(Expr* base, QualType elementType, SourceLoc loc);
 
     InvokeExpr* constructUncheckedInvokeExpr(Expr* callee, const List<Expr*>& arguments);
 
@@ -1649,8 +1674,11 @@ public:
 
     void visitModifier(Modifier*);
 
+    DeclRef<VarDeclBase> tryGetIntSpecializationConstant(Expr* expr);
+
     AttributeDecl* lookUpAttributeDecl(Name* attributeName, Scope* scope);
 
+    bool hasFloatArgs(Attribute* attr, int numArgs);
     bool hasIntArgs(Attribute* attr, int numArgs);
     bool hasStringArgs(Attribute* attr, int numArgs);
 
@@ -1741,6 +1769,9 @@ public:
         /// The outer declaration for the conformances being checked (either a type or `extension`
         /// declaration)
         ContainerDecl* parentDecl;
+
+        // An inner diagnostic sink to store diagnostics about why requirement synthesis failed.
+        DiagnosticSink innerSink;
 
         Dictionary<DeclRef<InterfaceDecl>, RefPtr<WitnessTable>> mapInterfaceToWitnessTable;
     };
@@ -2004,6 +2035,8 @@ public:
     void validateEnumTagType(Type* type, SourceLoc const& loc);
 
     void checkStmt(Stmt* stmt, SemanticsContext const& context);
+
+    Stmt* maybeParseStmt(Stmt* stmt, const SemanticsContext& context);
 
     void getGenericParams(
         GenericDecl* decl,
@@ -2757,6 +2790,25 @@ public:
     void suggestCompletionItems(
         CompletionSuggestions::ScopeKind scopeKind,
         LookupResult const& lookupResult);
+
+    bool createInvokeExprForExplicitCtor(
+        Type* toType,
+        InitializerListExpr* fromInitializerListExpr,
+        Expr** outExpr);
+
+    bool createInvokeExprForSynthesizedCtor(
+        Type* toType,
+        InitializerListExpr* fromInitializerListExpr,
+        Expr** outExpr);
+
+    Expr* _createCtorInvokeExpr(Type* toType, const SourceLoc& loc, const List<Expr*>& coercedArgs);
+    bool _hasExplicitConstructor(StructDecl* structDecl, bool checkBaseType);
+    ConstructorDecl* _getSynthesizedConstructor(
+        StructDecl* structDecl,
+        ConstructorDecl::ConstructorFlavor flavor);
+    bool isCStyleType(Type* type, HashSet<Type*>& isVisit);
+
+    void addVisibilityModifier(Decl* decl, DeclVisibility vis);
 };
 
 
@@ -2828,14 +2880,8 @@ public:
     // deal with this cases here, even if they are no-ops.
     //
 
-#define CASE(NAME)                                                                           \
-    Expr* visit##NAME(NAME* expr)                                                            \
-    {                                                                                        \
-        if (!getShared()->isInLanguageServer())                                              \
-            SLANG_DIAGNOSE_UNEXPECTED(getSink(), expr, "should not appear in input syntax"); \
-        expr->type = m_astBuilder->getErrorType();                                           \
-        return expr;                                                                         \
-    }
+#define CASE(NAME) \
+    Expr* visit##NAME(NAME* expr) { return expr; }
 
     CASE(DerefExpr)
     CASE(MakeRefExpr)
@@ -2976,6 +3022,8 @@ struct SemanticsDeclVisitorBase : public SemanticsVisitor
     }
 
     void checkModule(ModuleDecl* programNode);
+
+    ConstructorDecl* createCtor(AggTypeDecl* decl, DeclVisibility ctorVisibility);
 };
 
 bool isUnsizedArrayType(Type* type);

@@ -28,7 +28,7 @@
 // Artifact output
 #include "slang-artifact-output-util.h"
 #include "slang-emit-cuda.h"
-#include "slang-glsl-extension-tracker.h"
+#include "slang-extension-tracker.h"
 #include "slang-lower-to-ir.h"
 #include "slang-mangle.h"
 #include "slang-parameter-binding.h"
@@ -658,7 +658,7 @@ static void _appendCodeWithPath(
     outCodeBuilder << fileContent << "\n";
 }
 
-void trackGLSLTargetCaps(GLSLExtensionTracker* extensionTracker, CapabilitySet const& caps)
+void trackGLSLTargetCaps(ShaderExtensionTracker* extensionTracker, CapabilitySet const& caps)
 {
     for (auto& conjunctions : caps.getAtomSets())
     {
@@ -871,6 +871,7 @@ String GetHLSLProfileName(Profile profile)
         CASE(DX_6_5, _6_5);
         CASE(DX_6_6, _6_6);
         CASE(DX_6_7, _6_7);
+        CASE(DX_6_8, _6_8);
 #undef CASE
 
     default:
@@ -1036,8 +1037,11 @@ static RefPtr<ExtensionTracker> _newExtensionTracker(CodeGenTarget target)
         }
     case CodeGenTarget::SPIRV:
     case CodeGenTarget::GLSL:
+    case CodeGenTarget::WGSL:
+    case CodeGenTarget::WGSLSPIRV:
+    case CodeGenTarget::WGSLSPIRVAssembly:
         {
-            return new GLSLExtensionTracker;
+            return new ShaderExtensionTracker;
         }
     default:
         return nullptr;
@@ -1260,7 +1264,7 @@ SlangResult CodeGenContext::emitWithDownstreamForEntryPoints(ComPtr<IArtifact>& 
     if (auto endToEndReq = isPassThroughEnabled())
     {
         // If we are pass through, we may need to set extension tracker state.
-        if (GLSLExtensionTracker* glslTracker = as<GLSLExtensionTracker>(extensionTracker))
+        if (ShaderExtensionTracker* glslTracker = as<ShaderExtensionTracker>(extensionTracker))
         {
             trackGLSLTargetCaps(glslTracker, getTargetCaps());
         }
@@ -1399,7 +1403,7 @@ SlangResult CodeGenContext::emitWithDownstreamForEntryPoints(ComPtr<IArtifact>& 
                 options.flags |= CompileOptions::Flag::EnableFloat16;
             }
         }
-        else if (GLSLExtensionTracker* glslTracker = as<GLSLExtensionTracker>(extensionTracker))
+        else if (ShaderExtensionTracker* glslTracker = as<ShaderExtensionTracker>(extensionTracker))
         {
             DownstreamCompileOptions::CapabilityVersion version;
             version.kind = DownstreamCompileOptions::CapabilityVersion::Kind::SPIRV;
@@ -2419,6 +2423,13 @@ static SlangResult _writeDependencyFile(EndToEndCompileRequest* compileRequest)
                 }
             }
         }
+    }
+
+    // When the output is a binary module, linkage->targets can be empty. So
+    // we need to do their dependencies separately.
+    if (compileRequest->m_containerFormat == ContainerFormat::SlangModule)
+    {
+        _writeDependencyStatement(stream, compileRequest, compileRequest->m_containerOutputPath);
     }
 
     return SLANG_OK;

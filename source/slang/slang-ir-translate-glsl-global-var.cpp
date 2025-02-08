@@ -86,11 +86,6 @@ struct GlobalVarTranslationContext
                 IRTypeLayout::Builder fieldTypeLayout(&builder);
                 IRVarLayout::Builder varLayoutBuilder(&builder, fieldTypeLayout.build());
                 varLayoutBuilder.setStage(entryPointDecor->getProfile().getStage());
-                if (auto locationDecoration = input->findDecoration<IRGLSLLocationDecoration>())
-                {
-                    varLayoutBuilder.findOrAddResourceInfo(LayoutResourceKind::VaryingInput)
-                        ->offset = (UInt)getIntVal(locationDecoration->getLocation());
-                }
                 if (auto semanticDecor = input->findDecoration<IRSemanticDecoration>())
                 {
                     varLayoutBuilder.setSystemValueSemantic(
@@ -102,6 +97,16 @@ struct GlobalVarTranslationContext
                     fieldTypeLayout.addResourceUsage(
                         LayoutResourceKind::VaryingInput,
                         LayoutSize(1));
+                    if (auto layoutDecor = findVarLayout(input))
+                    {
+                        if (auto offsetAttr =
+                                layoutDecor->findOffsetAttr(LayoutResourceKind::VaryingInput))
+                        {
+                            varLayoutBuilder
+                                .findOrAddResourceInfo(LayoutResourceKind::VaryingInput)
+                                ->offset = (UInt)offsetAttr->getOffset();
+                        }
+                    }
                     if (entryPointDecor->getProfile().getStage() == Stage::Fragment)
                     {
                         varLayoutBuilder.setUserSemantic("COLOR", inputVarIndex);
@@ -122,7 +127,8 @@ struct GlobalVarTranslationContext
             // Add an entry point parameter for all the inputs.
             auto firstBlock = entryPointFunc->getFirstBlock();
             builder.setInsertInto(firstBlock);
-            auto inputParam = builder.emitParam(inputStructType);
+            auto inputParam = builder.emitParam(
+                builder.getPtrType(kIROp_ConstRefType, inputStructType, AddressSpace::Input));
             builder.addLayoutDecoration(inputParam, paramLayout);
 
             // Initialize all global variables.
@@ -133,7 +139,8 @@ struct GlobalVarTranslationContext
                 auto inputType = cast<IRPtrTypeBase>(input->getDataType())->getValueType();
                 builder.emitStore(
                     input,
-                    builder.emitFieldExtract(inputType, inputParam, inputKeys[i]));
+                    builder
+                        .emitFieldExtract(inputType, builder.emitLoad(inputParam), inputKeys[i]));
                 // Relate "global variable" to a "global parameter" for use later in compilation
                 // to resolve a "global variable" shadowing a "global parameter" relationship.
                 builder.addGlobalVariableShadowingGlobalParameterDecoration(
@@ -178,13 +185,15 @@ struct GlobalVarTranslationContext
                         fieldTypeLayout.addResourceUsage(
                             LayoutResourceKind::VaryingOutput,
                             LayoutSize(1));
-
-                        if (auto locationDecoration =
-                                output->findDecoration<IRGLSLLocationDecoration>())
+                        if (auto layoutDecor = findVarLayout(output))
                         {
-                            varLayoutBuilder
-                                .findOrAddResourceInfo(LayoutResourceKind::VaryingOutput)
-                                ->offset = (UInt)getIntVal(locationDecoration->getLocation());
+                            if (auto offsetAttr =
+                                    layoutDecor->findOffsetAttr(LayoutResourceKind::VaryingOutput))
+                            {
+                                varLayoutBuilder
+                                    .findOrAddResourceInfo(LayoutResourceKind::VaryingOutput)
+                                    ->offset = (UInt)offsetAttr->getOffset();
+                            }
                         }
                         if (entryPointDecor->getProfile().getStage() == Stage::Fragment)
                         {
@@ -280,10 +289,11 @@ struct GlobalVarTranslationContext
                         if (!numthreadsDecor)
                             return;
                         builder.setInsertBefore(use->getUser());
-                        IRInst* values[] = {
-                            numthreadsDecor->getExtentAlongAxis(0),
-                            numthreadsDecor->getExtentAlongAxis(1),
-                            numthreadsDecor->getExtentAlongAxis(2)};
+                        IRInst* values[3] = {
+                            numthreadsDecor->getOperand(0),
+                            numthreadsDecor->getOperand(1),
+                            numthreadsDecor->getOperand(2)};
+
                         auto workgroupSize = builder.emitMakeVector(
                             builder.getVectorType(builder.getIntType(), 3),
                             3,
@@ -326,10 +336,10 @@ struct GlobalVarTranslationContext
                 if (!firstBlock)
                     continue;
                 builder.setInsertBefore(firstBlock->getFirstOrdinaryInst());
-                IRInst* args[] = {
-                    numthreadsDecor->getExtentAlongAxis(0),
-                    numthreadsDecor->getExtentAlongAxis(1),
-                    numthreadsDecor->getExtentAlongAxis(2)};
+                IRInst* args[3] = {
+                    numthreadsDecor->getOperand(0),
+                    numthreadsDecor->getOperand(1),
+                    numthreadsDecor->getOperand(2)};
                 auto workgroupSize =
                     builder.emitMakeVector(workgroupSizeInst->getFullType(), 3, args);
                 builder.emitStore(globalVar, workgroupSize);

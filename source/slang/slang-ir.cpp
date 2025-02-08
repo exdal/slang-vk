@@ -1951,6 +1951,20 @@ static T* createInst(
 }
 
 template<typename T>
+static T* createInst(
+    IRBuilder* builder,
+    IROp op,
+    IRType* type,
+    IRInst* arg1,
+    IRInst* arg2,
+    IRInst* arg3,
+    IRInst* arg4)
+{
+    IRInst* args[] = {arg1, arg2, arg3, arg4};
+    return createInstImpl<T>(builder, op, type, 4, &args[0]);
+}
+
+template<typename T>
 static T* createInstWithTrailingArgs(
     IRBuilder* builder,
     IROp op,
@@ -2381,9 +2395,8 @@ IRBlobLit* IRBuilder::getBlobValue(ISlangBlob* blob)
     return static_cast<IRBlobLit*>(_findOrEmitConstant(keyInst));
 }
 
-IRPtrLit* IRBuilder::_getPtrValue(void* data)
+IRPtrLit* IRBuilder::getPtrValue(IRType* type, void* data)
 {
-    auto type = getPtrType(getVoidType());
     IRConstant keyInst;
     memset(&keyInst, 0, sizeof(keyInst));
     keyInst.m_op = kIROp_PtrLit;
@@ -2663,6 +2676,11 @@ IRBasicType* IRBuilder::getUInt16Type()
 IRBasicType* IRBuilder::getUInt8Type()
 {
     return (IRBasicType*)getType(kIROp_UInt8Type);
+}
+
+IRBasicType* IRBuilder::getFloatType()
+{
+    return (IRBasicType*)getType(kIROp_FloatType);
 }
 
 IRBasicType* IRBuilder::getCharType()
@@ -2951,6 +2969,13 @@ IRVectorType* IRBuilder::getVectorType(IRType* elementType, IRIntegerValue eleme
     return getVectorType(elementType, getIntValue(getIntType(), elementCount));
 }
 
+IRCoopVectorType* IRBuilder::getCoopVectorType(IRType* elementType, IRInst* elementCount)
+{
+    IRInst* operands[] = {elementType, elementCount};
+    return (IRCoopVectorType*)
+        getType(kIROp_CoopVectorType, sizeof(operands) / sizeof(operands[0]), operands);
+}
+
 IRMatrixType* IRBuilder::getMatrixType(
     IRType* elementType,
     IRInst* rowCount,
@@ -3182,6 +3207,11 @@ void IRBuilder::setDataType(IRInst* inst, IRType* dataType)
         // No rate? Just clobber the data type.
         inst->setFullType(dataType);
     }
+}
+
+IRInst* IRBuilder::emitGetCurrentStage()
+{
+    return emitIntrinsicInst(getIntType(), kIROp_GetCurrentStage, 0, nullptr);
 }
 
 IRInst* IRBuilder::emitGetValueFromBoundInterface(IRType* type, IRInst* boundInterfaceValue)
@@ -3625,7 +3655,25 @@ IRInst* IRBuilder::emitLookupInterfaceMethodInst(
 IRInst* IRBuilder::emitGetSequentialIDInst(IRInst* rttiObj)
 {
     auto inst = createInst<IRAlloca>(this, kIROp_GetSequentialID, getUIntType(), rttiObj);
+    addInst(inst);
+    return inst;
+}
 
+IRInst* IRBuilder::emitBitfieldExtract(IRType* type, IRInst* value, IRInst* offset, IRInst* bits)
+{
+    auto inst = createInst<IRInst>(this, kIROp_BitfieldExtract, type, value, offset, bits);
+    addInst(inst);
+    return inst;
+}
+
+IRInst* IRBuilder::emitBitfieldInsert(
+    IRType* type,
+    IRInst* base,
+    IRInst* insert,
+    IRInst* offset,
+    IRInst* bits)
+{
+    auto inst = createInst<IRInst>(this, kIROp_BitfieldInsert, type, base, insert, offset, bits);
     addInst(inst);
     return inst;
 }
@@ -3766,6 +3814,8 @@ IRInst* IRBuilder::emitDefaultConstruct(IRType* type, bool fallback)
     case kIROp_UIntType:
     case kIROp_UIntPtrType:
     case kIROp_UInt64Type:
+    case kIROp_Int8x4PackedType:
+    case kIROp_UInt8x4PackedType:
     case kIROp_CharType:
         return getIntValue(type, 0);
     case kIROp_BoolType:
@@ -3853,6 +3903,26 @@ IRInst* IRBuilder::emitDefaultConstruct(IRType* type, bool fallback)
             if (!inner)
                 return nullptr;
             return emitIntrinsicInst(type, kIROp_MakeVectorFromScalar, 1, &inner);
+        }
+    case kIROp_CoopVectorType:
+        {
+            auto coopVecType = as<IRCoopVectorType>(actualType);
+            if (auto count = as<IRIntLit>(coopVecType->getElementCount()))
+            {
+                auto element = emitDefaultConstruct(coopVecType->getElementType(), fallback);
+                if (!element)
+                    return nullptr;
+                List<IRInst*> elements;
+                constexpr int maxCount = 4096;
+                if (count->getValue() > maxCount)
+                    break;
+                for (IRIntegerValue i = 0; i < count->getValue(); i++)
+                {
+                    elements.add(element);
+                }
+                return emitMakeCoopVector(type, elements.getCount(), elements.getBuffer());
+            }
+            break;
         }
     case kIROp_MatrixType:
         {
@@ -4138,6 +4208,18 @@ IRInst* IRBuilder::emitGetNativeString(IRInst* str)
     return emitIntrinsicInst(getNativeStringType(), kIROp_getNativeStr, 1, &str);
 }
 
+IRInst* IRBuilder::emitGetElement(IRType* type, IRInst* arrayLikeType, IRIntegerValue element)
+{
+    IRInst* args[] = {arrayLikeType, getIntValue(getIntType(), element)};
+    return emitIntrinsicInst(type, kIROp_GetElement, 2, args);
+}
+
+IRInst* IRBuilder::emitGetElementPtr(IRType* type, IRInst* arrayLikeType, IRIntegerValue element)
+{
+    IRInst* args[] = {arrayLikeType, getIntValue(getIntType(), element)};
+    return emitIntrinsicInst(type, kIROp_GetElementPtr, 2, args);
+}
+
 IRInst* IRBuilder::emitGetTupleElement(IRType* type, IRInst* tuple, IRInst* element)
 {
     IRInst* args[] = {tuple, element};
@@ -4310,6 +4392,11 @@ IRInst* IRBuilder::emitMakeMatrix(IRType* type, UInt argCount, IRInst* const* ar
 IRInst* IRBuilder::emitMakeMatrixFromScalar(IRType* type, IRInst* scalarValue)
 {
     return emitIntrinsicInst(type, kIROp_MakeMatrixFromScalar, 1, &scalarValue);
+}
+
+IRInst* IRBuilder::emitMakeCoopVector(IRType* type, UInt argCount, IRInst* const* args)
+{
+    return emitIntrinsicInst(type, kIROp_MakeCoopVector, argCount, args);
 }
 
 IRInst* IRBuilder::emitMakeArray(IRType* type, UInt argCount, IRInst* const* args)
@@ -5154,6 +5241,10 @@ IRInst* IRBuilder::emitElementAddress(IRInst* basePtr, IRInst* index)
     {
         type = vectorType->getElementType();
     }
+    else if (auto coopVecType = as<IRCoopVectorType>(valueType))
+    {
+        type = coopVecType->getElementType();
+    }
     else if (auto matrixType = as<IRMatrixType>(valueType))
     {
         type = getVectorType(matrixType->getElementType(), matrixType->getColumnCount());
@@ -5929,6 +6020,20 @@ IRInst* IRBuilder::emitShl(IRType* type, IRInst* left, IRInst* right)
     return inst;
 }
 
+IRInst* IRBuilder::emitAnd(IRType* type, IRInst* left, IRInst* right)
+{
+    auto inst = createInst<IRInst>(this, kIROp_And, type, left, right);
+    addInst(inst);
+    return inst;
+}
+
+IRInst* IRBuilder::emitOr(IRType* type, IRInst* left, IRInst* right)
+{
+    auto inst = createInst<IRInst>(this, kIROp_Or, type, left, right);
+    addInst(inst);
+    return inst;
+}
+
 IRInst* IRBuilder::emitGetNativePtr(IRInst* value)
 {
     auto valueType = value->getDataType();
@@ -6290,7 +6395,7 @@ IRDecoration* IRBuilder::addDecoration(
 
 void IRBuilder::addHighLevelDeclDecoration(IRInst* inst, Decl* decl)
 {
-    auto ptrConst = _getPtrValue(decl);
+    auto ptrConst = getPtrValue(getPtrType(getVoidType()), decl);
     addDecoration(inst, kIROp_HighLevelDeclDecoration, ptrConst);
 }
 
@@ -7361,8 +7466,6 @@ static bool _isTypeOperandEqual(IRInst* a, IRInst* b)
     {
         return _areTypeOperandsEqual(a, b);
     }
-    SLANG_ASSERT(!"Unhandled comparison");
-
     // We can't equate any other type..
     return false;
 }
@@ -7389,6 +7492,8 @@ bool isIntegralType(IRType* t)
         case BaseType::UInt64:
         case BaseType::IntPtr:
         case BaseType::UIntPtr:
+        case BaseType::Int8x4Packed:
+        case BaseType::UInt8x4Packed:
             return true;
         default:
             return false;
@@ -7434,6 +7539,10 @@ IntInfo getIntTypeInfo(const IRType* intType)
         return {32, true};
     case kIROp_Int64Type:
         return {64, true};
+
+    case kIROp_Int8x4PackedType:
+    case kIROp_UInt8x4PackedType:
+        return {32, false};
 
     case kIROp_IntPtrType:  // target platform dependent
     case kIROp_UIntPtrType: // target platform dependent
@@ -7971,7 +8080,7 @@ void IRInst::removeOperand(Index index)
 }
 
 // Remove this instruction from its parent block,
-// and then destroy it (it had better have no uses!)
+// and then destroy it (it had better have no uses, or descendants with uses!)
 void IRInst::removeAndDeallocate()
 {
     removeAndDeallocateAllDecorationsAndChildren();
@@ -8106,6 +8215,7 @@ bool IRInst::mightHaveSideEffects(SideEffectAnalysisOptions options)
     case kIROp_GetAddr:
     case kIROp_GetValueFromBoundInterface:
     case kIROp_MakeUInt64:
+    case kIROp_MakeCoopVector:
     case kIROp_MakeVector:
     case kIROp_MakeMatrix:
     case kIROp_MakeMatrixFromScalar:
@@ -8186,8 +8296,14 @@ bool IRInst::mightHaveSideEffects(SideEffectAnalysisOptions options)
     case kIROp_CastPtrToInt:
     case kIROp_CastIntToPtr:
     case kIROp_PtrCast:
+    case kIROp_CastUInt2ToDescriptorHandle:
+    case kIROp_CastDescriptorHandleToUInt2:
+    case kIROp_CastDescriptorHandleToResource:
+    case kIROp_GetDynamicResourceHeap:
     case kIROp_CastDynamicResource:
     case kIROp_AllocObj:
+    case kIROp_BitfieldExtract:
+    case kIROp_BitfieldInsert:
     case kIROp_PackAnyValue:
     case kIROp_UnpackAnyValue:
     case kIROp_Reinterpret:
@@ -8201,6 +8317,10 @@ bool IRInst::mightHaveSideEffects(SideEffectAnalysisOptions options)
     case kIROp_GetStringHash:
     case kIROp_AllocateOpaqueHandle:
     case kIROp_GetArrayLength:
+    case kIROp_ResolveVaryingInputRef:
+    case kIROp_GetPerVertexInputArray:
+    case kIROp_MetalCastToDepthTexture:
+    case kIROp_GetCurrentStage:
         return false;
 
     case kIROp_ForwardDifferentiate:
@@ -8581,6 +8701,7 @@ bool isMovableInst(IRInst* inst)
 
     switch (inst->getOp())
     {
+    case kIROp_MakeCoopVector:
     case kIROp_Add:
     case kIROp_Sub:
     case kIROp_Mul:

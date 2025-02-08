@@ -3,7 +3,7 @@
 #define SLANG_EMIT_GLSL_H
 
 #include "slang-emit-c-like.h"
-#include "slang-glsl-extension-tracker.h"
+#include "slang-extension-tracker.h"
 
 namespace Slang
 {
@@ -63,6 +63,9 @@ protected:
     virtual void emitParamTypeImpl(IRType* type, String const& name) SLANG_OVERRIDE;
     virtual void emitFuncDecorationImpl(IRDecoration* decoration) SLANG_OVERRIDE;
     virtual void emitGlobalParamDefaultVal(IRGlobalParam* decl) SLANG_OVERRIDE;
+
+    virtual void emitBitfieldExtractImpl(IRInst* inst) SLANG_OVERRIDE;
+    virtual void emitBitfieldInsertImpl(IRInst* inst) SLANG_OVERRIDE;
 
     virtual void handleRequiredCapabilitiesImpl(IRInst* inst) SLANG_OVERRIDE;
 
@@ -173,9 +176,11 @@ protected:
 
     void emitAtomicImageCoord(IRImageSubscript* operand);
 
+    void _beforeComputeEmitProcessInstruction(IRInst* parentFunc, IRInst* inst, IRBuilder& builder);
+
     Dictionary<IRInst*, HashSet<IRFunc*>> m_referencingEntryPoints;
 
-    RefPtr<GLSLExtensionTracker> m_glslExtensionTracker;
+    RefPtr<ShaderExtensionTracker> m_glslExtensionTracker;
 };
 
 } // namespace Slang

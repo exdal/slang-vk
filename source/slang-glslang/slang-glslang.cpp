@@ -1,12 +1,12 @@
 // slang-glslang.cpp
 #include "slang-glslang.h"
 
+#include "SPIRV/GlslangToSpv.h"
+#include "glslang/MachineIndependent/localintermediate.h"
+#include "glslang/Public/ShaderLang.h"
 #include "slang.h"
 #include "spirv-tools/libspirv.h"
 #include "spirv-tools/optimizer.hpp"
-
-#include <glslang/Public/ShaderLang.h>
-#include <glslang/SPIRV/GlslangToSpv.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -169,8 +169,7 @@ extern "C"
 #else
     __attribute__((__visibility__("default")))
 #endif
-    bool
-    glslang_validateSPIRV(const uint32_t* contents, int contentsSize)
+        bool glslang_validateSPIRV(const uint32_t* contents, int contentsSize)
 {
     spv_target_env target_env = SPV_ENV_VULKAN_1_3;
 
@@ -181,6 +180,37 @@ extern "C"
     tools.SetMessageConsumer(validationMessageConsumer);
 
     return tools.Validate(contents, contentsSize, options);
+}
+
+// Disassemble the given SPIRV-ASM instructions.
+extern "C"
+#ifdef _MSC_VER
+    _declspec(dllexport)
+#else
+    __attribute__((__visibility__("default")))
+#endif
+        bool glslang_disassembleSPIRV(const uint32_t* contents, int contentsSize)
+{
+    static const auto kDefaultEnvironment = SPV_ENV_UNIVERSAL_1_5;
+
+    uint32_t options = SPV_BINARY_TO_TEXT_OPTION_NONE;
+    options |= SPV_BINARY_TO_TEXT_OPTION_COMMENT;
+    options |= SPV_BINARY_TO_TEXT_OPTION_PRINT;
+    options |= SPV_BINARY_TO_TEXT_OPTION_COLOR;
+
+    spv_diagnostic diagnostic = nullptr;
+    spv_context context = spvContextCreate(kDefaultEnvironment);
+    spv_result_t error =
+        spvBinaryToText(context, contents, contentsSize, options, nullptr, &diagnostic);
+    spvContextDestroy(context);
+    if (error)
+    {
+        spvDiagnosticPrint(diagnostic);
+        spvDiagnosticDestroy(diagnostic);
+        return false;
+    }
+
+    return true;
 }
 
 // Apply the SPIRV-Tools optimizer to generated SPIR-V based on the desired optimization level
@@ -707,9 +737,6 @@ static int glslang_compileGLSLToSPIRV(glslang_CompileRequest_1_2 request)
         spvOptions.emitNonSemanticShaderDebugSource = true;
         spvOptions.disableOptimizer = true;
         request.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_NONE;
-
-        // NOTE: exdal: Not original implementation, fuck you glslang
-        shader->addSourceText(sourceText, sourceTextLength);
     }
 
     // Link program
@@ -745,6 +772,10 @@ static int glslang_compileGLSLToSPIRV(glslang_CompileRequest_1_2 request)
         auto stageIntermediate = program->getIntermediate((EShLanguage)stage);
         if (!stageIntermediate)
             continue;
+        if (debugLevel == SLANG_DEBUG_INFO_LEVEL_MAXIMAL)
+        {
+            stageIntermediate->addSourceText(sourceText, sourceTextLength);
+        }
 
         std::vector<unsigned int> spirv;
         spv::SpvBuildLogger logger;
@@ -884,8 +915,7 @@ extern "C"
 #else
     __attribute__((__visibility__("default")))
 #endif
-    int
-    glslang_compile_1_2(glslang_CompileRequest_1_2* inRequest)
+        int glslang_compile_1_2(glslang_CompileRequest_1_2* inRequest)
 {
     static ProcessInitializer g_processInitializer;
     if (!g_processInitializer.init())
@@ -924,8 +954,7 @@ extern "C"
 #else
     __attribute__((__visibility__("default")))
 #endif
-    int
-    glslang_compile_1_1(glslang_CompileRequest_1_1* inRequest)
+        int glslang_compile_1_1(glslang_CompileRequest_1_1* inRequest)
 {
     glslang_CompileRequest_1_2 request;
     memset(&request, 0, sizeof(request));
@@ -940,8 +969,7 @@ extern "C"
 #else
     __attribute__((__visibility__("default")))
 #endif
-    int
-    glslang_compile(glslang_CompileRequest_1_0* inRequest)
+        int glslang_compile(glslang_CompileRequest_1_0* inRequest)
 {
     glslang_CompileRequest_1_1 request;
     memset(&request, 0, sizeof(request));

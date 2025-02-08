@@ -384,13 +384,6 @@ void initCommandOptions(CommandOptions& options)
          "-restrictive-capability-check",
          nullptr,
          "Many capability warnings will become an error."},
-        {OptionKind::ZeroInitialize,
-         "-zero-initialize",
-         nullptr,
-         "Initialize all variables to zero."
-         "Structs will set all struct-fields without an init expression to 0."
-         "All variables will call their default constructor if not explicitly initialized as "
-         "usual."},
         {OptionKind::IgnoreCapabilities,
          "-ignore-capabilities",
          nullptr,
@@ -527,9 +520,7 @@ void initCommandOptions(CommandOptions& options)
         {OptionKind::EmitReflectionJSON,
          "-reflection-json",
          "reflection-json <path>",
-         "Emit reflection data in JSON format to a file."},
-    };
-
+         "Emit reflection data in JSON format to a file."}};
 
     _addOptions(makeConstArrayView(generalOpts), options);
 
@@ -672,7 +663,10 @@ void initCommandOptions(CommandOptions& options)
          "-incomplete-library",
          nullptr,
          "Allow generating code from incomplete libraries with unresolved external functions"},
-    };
+        {OptionKind::BindlessSpaceIndex,
+         "-bindless-space-index",
+         "-bindless-space-index <index>",
+         "Specify the space index for the system defined global bindless resource array."}};
 
     _addOptions(makeConstArrayView(targetOpts), options);
 
@@ -887,6 +881,11 @@ void initCommandOptions(CommandOptions& options)
          "-save-core-module-bin-source <filename>",
          "Same as -save-core-module but output "
          "the data as a C array.\n"},
+        {OptionKind::SaveGLSLModuleBinSource,
+         "-save-glsl-module-bin-source",
+         "-save-glsl-module-bin-source <filename>",
+         "Save the serialized glsl module "
+         "as a C array.\n"},
         {OptionKind::TrackLiveness,
          "-track-liveness",
          nullptr,
@@ -908,6 +907,13 @@ void initCommandOptions(CommandOptions& options)
          "-parameter-blocks-use-register-spaces",
          nullptr,
          "Parameter blocks will use register spaces"},
+        {OptionKind::ZeroInitialize,
+         "-zero-initialize",
+         nullptr,
+         "Initialize all variables to zero."
+         "Structs will set all struct-fields without an init expression to 0."
+         "All variables will call their default constructor if not explicitly initialized as "
+         "usual."},
     };
     _addOptions(makeConstArrayView(deprecatedOpts), options);
 
@@ -2132,7 +2138,6 @@ SlangResult OptionsParser::_parse(int argc, char const* const* argv)
         case OptionKind::VulkanUseEntryPointName:
         case OptionKind::VulkanUseGLLayout:
         case OptionKind::VulkanEmitReflection:
-        case OptionKind::ZeroInitialize:
         case OptionKind::IgnoreCapabilities:
         case OptionKind::RestrictiveCapabilityCheck:
         case OptionKind::MinimumSlangOptimization:
@@ -2202,14 +2207,24 @@ SlangResult OptionsParser::_parse(int argc, char const* const* argv)
                 break;
             }
         case OptionKind::SaveCoreModuleBinSource:
+        case OptionKind::SaveGLSLModuleBinSource:
             {
                 CommandLineArg fileName;
                 SLANG_RETURN_ON_FAIL(m_reader.expectArg(fileName));
 
                 ComPtr<ISlangBlob> blob;
 
-                SLANG_RETURN_ON_FAIL(m_session->saveCoreModule(m_archiveType, blob.writeRef()));
-
+                if (optionKind == OptionKind::SaveCoreModuleBinSource)
+                {
+                    SLANG_RETURN_ON_FAIL(m_session->saveCoreModule(m_archiveType, blob.writeRef()));
+                }
+                else
+                {
+                    SLANG_RETURN_ON_FAIL(m_session->saveBuiltinModule(
+                        slang::BuiltinModuleName::GLSL,
+                        m_archiveType,
+                        blob.writeRef()));
+                }
                 StringBuilder builder;
                 StringWriter writer(&builder, 0);
 
@@ -2474,6 +2489,10 @@ SlangResult OptionsParser::_parse(int argc, char const* const* argv)
                 // to treat `-profile` and `-capability` as aliases, although there might still be
                 // value in only allowing a single `-profile` option per target while still allowing
                 // zero or more `-capability` options.
+
+                // Don't treat zero args as an error.
+                if (!m_reader.hasArg())
+                    break;
 
                 CommandLineArg operand;
                 SLANG_RETURN_ON_FAIL(m_reader.expectArg(operand));
@@ -2758,9 +2777,7 @@ SlangResult OptionsParser::_parse(int argc, char const* const* argv)
         case OptionKind::Help:
             {
                 SLANG_RETURN_ON_FAIL(_parseHelp(arg));
-
-                // We retun an error so after this has successfully passed, we quit
-                return SLANG_FAIL;
+                return SLANG_OK;
             }
         case OptionKind::EmitSpirvViaGLSL:
         case OptionKind::EmitSpirvDirectly:
@@ -2897,6 +2914,13 @@ SlangResult OptionsParser::_parse(int argc, char const* const* argv)
         case OptionKind::DisableShortCircuit:
             {
                 linkage->m_optionSet.add(OptionKind::DisableShortCircuit, true);
+                break;
+            }
+        case OptionKind::BindlessSpaceIndex:
+            {
+                Int index = 0;
+                SLANG_RETURN_ON_FAIL(_expectInt(arg, index));
+                linkage->m_optionSet.add(OptionKind::BindlessSpaceIndex, (int)index);
                 break;
             }
         default:

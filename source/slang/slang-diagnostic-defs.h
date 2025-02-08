@@ -70,6 +70,25 @@ DIAGNOSTIC(
     Note,
     seeDeclarationOfInterfaceRequirement,
     "see interface requirement declaration of '$0'")
+
+DIAGNOSTIC(
+    -1,
+    Note,
+    genericSignatureDoesNotMatchRequirement,
+    "generic signature of '$0' does not match interface requirement.")
+
+DIAGNOSTIC(
+    -1,
+    Note,
+    cannotResolveOverloadForMethodRequirement,
+    "none of the overloads of '$0' match the interface requirement.")
+
+DIAGNOSTIC(
+    -1,
+    Note,
+    parameterDirectionDoesNotMatchRequirement,
+    "parameter '$0' is '$1' in the implementing member, but the interface requires '$2'.")
+
 // An alternate wording of the above note, emphasing the position rather than content of the
 // declaration.
 DIAGNOSTIC(-1, Note, declaredHere, "declared here")
@@ -437,6 +456,11 @@ DIAGNOSTIC(
     Error,
     unexpectedTokenExpectedComponentDefinition,
     "unexpected token '$0', only component definitions are allowed in a shader scope.")
+DIAGNOSTIC(
+    20005,
+    Error,
+    invalidEmptyParenthesisExpr,
+    "empty parenthesis '()' is not a valid expression.")
 DIAGNOSTIC(20008, Error, invalidOperator, "invalid operator '$0'.")
 DIAGNOSTIC(20011, Error, unexpectedColon, "unexpected ':'.")
 DIAGNOSTIC(
@@ -468,7 +492,11 @@ DIAGNOSTIC(
     Warning,
     unintendedEmptyStatement,
     "potentially unintended empty statement at this location; use {} instead.")
-
+DIAGNOSTIC(
+    20102,
+    Error,
+    unexpectedBodyAfterSemicolon,
+    "unexpected function body after signature declaration, is this ';' a typo?")
 DIAGNOSTIC(30102, Error, declNotAllowed, "$0 is not allowed here.")
 
 // 29xxx - Snippet parsing and inline asm
@@ -522,6 +550,23 @@ DIAGNOSTIC(
     Error,
     spirvInvalidTruncate,
     "__truncate has been given a source smaller than its target")
+DIAGNOSTIC(29112, Error, spirvInstructionWithNotEnoughOperands, "not enough operands for $0")
+DIAGNOSTIC(
+    29113,
+    Error,
+    spirvIdRedefinition,
+    "SPIRV id '%$0' is already defined in the current assembly block")
+DIAGNOSTIC(
+    29114,
+    Error,
+    spirvUndefinedId,
+    "SPIRV id '%$0' is not defined in the current assembly block location")
+
+DIAGNOSTIC(
+    29115,
+    Error,
+    targetSwitchCaseCannotBeAStage,
+    "cannot use a stage name in '__target_switch', use '__stage_switch' for stage-specific code.")
 
 //
 // 3xxxx - Semantic analysis
@@ -708,6 +753,10 @@ DIAGNOSTIC(
     Error,
     cannotSpecializeGeneric,
     "cannot specialize generic '$0' with the provided arguments.")
+
+DIAGNOSTIC(30076, Error, globalVarCannotHaveOpaqueType, "global variable cannot have opaque type.")
+DIAGNOSTIC(-1, Note, doYouMeanStaticConst, "do you intend to define a `static const` instead?")
+DIAGNOSTIC(-1, Note, doYouMeanUniform, "do you intend to define a `uniform` parameter instead?")
 
 DIAGNOSTIC(
     30100,
@@ -1003,6 +1052,12 @@ DIAGNOSTIC(
     attributeExpectedStringArg,
     "attribute '$0' expects argument $1 to be string")
 
+DIAGNOSTIC(
+    31009,
+    Error,
+    expectedSingleFloatArg,
+    "attribute '$0' expects a single floating point argument")
+
 DIAGNOSTIC(31100, Error, unknownStageName, "unknown stage name '$0'")
 DIAGNOSTIC(31101, Error, unknownImageFormatName, "unknown image format '$0'")
 DIAGNOSTIC(31101, Error, unknownDiagnosticName, "unknown diagnostic '$0'")
@@ -1022,6 +1077,13 @@ DIAGNOSTIC(
     explicitUniformLocation,
     "Explicit binding of uniform locations is discouraged. Prefer 'ConstantBuffer<$0>' over "
     "'uniform $0'")
+DIAGNOSTIC(
+    31105,
+    Warning,
+    imageFormatUnsupportedByBackend,
+    "Image format '$0' is not explicitly supported by the $1 backend, using supported format '$2' "
+    "instead.")
+
 
 DIAGNOSTIC(31120, Error, invalidAttributeTarget, "invalid syntax target for user defined attribute")
 
@@ -1213,8 +1275,21 @@ DIAGNOSTIC(
     Error,
     unrecognizedGLSLLayoutQualifierOrRequiresAssignment,
     "GLSL layout qualifier is unrecognized or requires assignment")
-
-
+DIAGNOSTIC(
+    31218,
+    Error,
+    specializationConstantMustBeScalar,
+    "specialization constant must be a scalar.")
+DIAGNOSTIC(
+    31219,
+    Error,
+    pushOrSpecializationConstantCannotBeStatic,
+    "push or specialization constants cannot be 'static'.")
+DIAGNOSTIC(
+    31220,
+    Error,
+    variableCannotBePushAndSpecializationConstant,
+    "'$0' cannot be a push constant and a specialization constant at the same time")
 // Enums
 
 DIAGNOSTIC(32000, Error, invalidEnumTagType, "invalid tag type for 'enum': '$0'")
@@ -1358,6 +1433,11 @@ DIAGNOSTIC(
     Error,
     cannotUseInitializerListForType,
     "cannot use initializer list for type '$0'")
+DIAGNOSTIC(
+    30505,
+    Error,
+    cannotUseInitializerListForCoopVectorOfUnknownSize,
+    "cannot use initializer list for CoopVector of statically unknown size '$0'")
 
 // 3062x: variables
 DIAGNOSTIC(
@@ -1371,7 +1451,11 @@ DIAGNOSTIC(
     ambiguousDefaultInitializerForType,
     "more than one default initializer was found for type '$0'")
 DIAGNOSTIC(30623, Error, cannotHaveInitializer, "'$0' cannot have an initializer because it is $1")
-
+DIAGNOSTIC(
+    30623,
+    Error,
+    genericValueParameterMustHaveType,
+    "a generic value parameter must be given an explicit type")
 
 // 307xx: parameters
 DIAGNOSTIC(
@@ -1616,6 +1700,12 @@ DIAGNOSTIC(
     overloadedParameterToHigherOrderFunction,
     "passing overloaded functions to higher order functions is not supported")
 
+DIAGNOSTIC(
+    39999,
+    Error,
+    matrixColumnOrRowCountIsOne,
+    "matrices with 1 column or row are not supported by the current code generation target")
+
 // 38xxx
 
 DIAGNOSTIC(
@@ -1800,6 +1890,13 @@ DIAGNOSTIC(
     Error,
     errorInImportedModule,
     "import of module '$0' failed because of a compilation error")
+
+DIAGNOSTIC(
+    38201,
+    Error,
+    glslModuleNotAvailable,
+    "'glsl' module is not available from the current global session. To enable GLSL compatibility "
+    "mode, specify 'SlangGlobalSessionDesc::enableGLSL' when creating the global session.")
 DIAGNOSTIC(39999, Fatal, complationCeased, "compilation ceased")
 
 // 39xxx - Type layout and parameter binding.
@@ -1945,6 +2042,13 @@ DIAGNOSTIC(
     notValidVaryingParameter,
     "parameter '$0' is not a valid varying parameter.")
 
+DIAGNOSTIC(
+    39029,
+    Warning,
+    registerModifierButNoVkBindingNorShift,
+    "shader parameter '$0' has a 'register' specified for D3D, but no '[[vk::binding(...)]]` "
+    "specified for Vulkan, nor is `-fvk-$1-shift` used.")
+
 //
 
 // 4xxxx - IL code generation.
@@ -2018,7 +2122,7 @@ DIAGNOSTIC(
 DIAGNOSTIC(41000, Warning, unreachableCode, "unreachable code detected")
 DIAGNOSTIC(41001, Error, recursiveType, "type '$0' contains cyclic reference to itself.")
 
-DIAGNOSTIC(41010, Warning, missingReturn, "control flow may reach end of non-'void' function")
+DIAGNOSTIC(41010, Warning, missingReturn, "non-void function does not return in all cases")
 DIAGNOSTIC(
     41011,
     Error,
@@ -2198,6 +2302,13 @@ DIAGNOSTIC(
     Error,
     multiSampledTextureDoesNotAllowWrites,
     "cannot write to a multisampled texture with target '$0'.")
+
+DIAGNOSTIC(
+    41403,
+    Error,
+    invalidAtomicDestinationPointer,
+    "cannot perform atomic operation because destination is neither groupshared nor from a device "
+    "buffer.")
 
 //
 // 5xxxx - Target code generation.
@@ -2418,6 +2529,12 @@ DIAGNOSTIC(
     unsupportedTargetIntrinsic,
     "intrinsic operation '$0' is not supported for the current target.")
 DIAGNOSTIC(
+    55205,
+    Error,
+    unsupportedSpecializationConstantForNumThreads,
+    "Specialization constants are not supported in the 'numthreads' attribute for the current "
+    "target.")
+DIAGNOSTIC(
     56001,
     Error,
     unableToAutoMapCUDATypeToHostType,
@@ -2439,6 +2556,12 @@ DIAGNOSTIC(
 DIAGNOSTIC(57001, Warning, spirvOptFailed, "spirv-opt failed. $0")
 DIAGNOSTIC(57002, Error, unknownPatchConstantParameter, "unknown patch constant parameter '$0'.")
 DIAGNOSTIC(57003, Error, unknownTessPartitioning, "unknown tessellation partitioning '$0'.")
+DIAGNOSTIC(
+    57004,
+    Error,
+    outputSpvIsEmpty,
+    "output SPIR-V contains no exported symbols. Please make sure to specify at least one "
+    "entrypoint.")
 
 // GLSL Compatibility
 DIAGNOSTIC(
@@ -2514,11 +2637,7 @@ DIAGNOSTIC(
     Internal,
     serialDebugVerificationFailed,
     "Verification of serial debug information failed.")
-DIAGNOSTIC(
-    99999,
-    Internal,
-    spirvValidationFailed,
-    "Validation of generated SPIR-V failed. SPIRV generated: \n$0")
+DIAGNOSTIC(99999, Internal, spirvValidationFailed, "Validation of generated SPIR-V failed.")
 
 DIAGNOSTIC(
     99999,
